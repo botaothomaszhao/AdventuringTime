@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../geo_search.dart';
 import '../providers.dart';
 import '../storage.dart';
 
-/// 设置：瓦片源 URL、数据目录、关于。
+/// 设置：瓦片源、搜索服务、数据目录、关于。
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
 
@@ -15,6 +16,16 @@ class SettingsPage extends ConsumerStatefulWidget {
 class _SettingsPageState extends ConsumerState<SettingsPage> {
   late final TextEditingController _tileUrl;
   bool _saved = false;
+  String? _service;
+
+  static const _presets = {
+    'Esri（墙内可用，推荐）':
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    'OpenStreetMap':
+        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    'Carto Voyager':
+        'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+  };
 
   @override
   void initState() {
@@ -35,18 +46,38 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       _tileUrl.text = tile;
     }
     final root = ref.watch(dataRootProvider).maybeWhen(data: (d) => d.path, orElse: () => '');
+    final currentService = _service ?? ref.watch(geocodeServiceProvider).maybeWhen(data: (s) => s, orElse: () => 'photon');
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text('瓦片源', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('地图瓦片源', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          const Text('墙内网络建议使用 Esri（坐标与 OSM 一致）。自定义模板须为 WGS-84 Web Mercator。',
+              style: TextStyle(fontSize: 12, color: Colors.grey)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final e in _presets.entries)
+                ActionChip(
+                  label: Text(e.key),
+                  onPressed: () {
+                    setState(() {
+                      _tileUrl.text = e.value;
+                      _saved = false;
+                    });
+                  },
+                ),
+            ],
+          ),
           const SizedBox(height: 8),
           TextField(
             controller: _tileUrl,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
-              hintText: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              hintText: '瓦片模板 URL',
             ),
           ),
           const SizedBox(height: 8),
@@ -59,6 +90,26 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   .showSnackBar(const SnackBar(content: Text('已保存（重启后生效）')));
             },
             child: const Text('保存瓦片源'),
+          ),
+          const Divider(height: 32),
+          const Text('地址搜索服务', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          const Text('Photon（默认，墙内可用）；Nominatim 为 OSM 官方服务，墙内可能超时。',
+              style: TextStyle(fontSize: 12, color: Colors.grey)),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'photon', label: Text('Photon')),
+              ButtonSegment(value: 'nominatim', label: Text('Nominatim')),
+            ],
+            selected: {currentService ?? 'photon'},
+            onSelectionChanged: (s) async {
+              await setGeocodeService(s.first);
+              setState(() => _service = s.first);
+              if (!mounted) return;
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(const SnackBar(content: Text('搜索服务已切换')));
+            },
           ),
           const Divider(height: 32),
           const Text('数据目录', style: TextStyle(fontWeight: FontWeight.bold)),

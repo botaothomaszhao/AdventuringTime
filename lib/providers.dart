@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'geo_search.dart';
 import 'models.dart';
 import 'storage.dart';
 
@@ -252,13 +253,17 @@ final mediaListProvider = FutureProvider.family<List<File>, String>((ref, person
   return repo.media.listAll();
 });
 
-/// 设置：瓦片源 URL。
+/// 设置：瓦片源 URL。墙内默认 Esri（WGS-84 与 OSM 坐标一致），OSM 可在设置中切换。
 final tileUrlProvider = FutureProvider<String>((ref) async {
   final prefs = await SharedPreferences.getInstance();
-  return prefs.getString('tileUrl') ?? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  return prefs.getString('tileUrl') ??
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
 });
 
 Future<void> setTileUrl(String url) async {
   final prefs = await SharedPreferences.getInstance();
   await prefs.setString('tileUrl', url);
 }
+
+/// 设置：地址搜索服务（photon / nominatim）。
+final geocodeServiceProvider = FutureProvider<String>((ref) => geocodeService());
