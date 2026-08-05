@@ -60,6 +60,7 @@ class MediaStore {
     final id = newId();
     final ext = p.extension(src.path).replaceFirst('.', '');
     final f = File(p.join(dir.path, '$id.$ext'));
+    await f.parent.create(recursive: true);
     await src.copy(f.path);
     return id;
   }

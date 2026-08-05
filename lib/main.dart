@@ -22,24 +22,27 @@ class AdventuringTimeApp extends StatelessWidget {
         useMaterial3: true,
       ),
       initialRoute: '/',
-      onGenerateRoute: (settings) {
-        final segs = settings.name == '/' ? <String>[] : settings.name!.split('/').where((s) => s.isNotEmpty).toList();
-        Widget page = const PeoplePage();
-        if (segs.isEmpty) {
-          page = const PeoplePage();
-        } else if (segs.length == 3 && segs[0] == 'person' && segs[2] == 'map') {
-          page = PersonShell(personId: segs[1], initialTab: 0);
-        } else if (segs.length == 3 && segs[0] == 'person' && segs[2] == 'timeline') {
-          page = PersonShell(personId: segs[1], initialTab: 1);
-        } else if (segs.length == 3 && segs[0] == 'person' && segs[2] == 'stats') {
-          page = PersonShell(personId: segs[1], initialTab: 2);
-        } else if (segs.length == 4 && segs[0] == 'person' && segs[2] == 'trip') {
-          page = TripDetailPage(personId: segs[1], tripId: segs[3]);
-        } else if (segs.length == 1 && segs[0] == 'settings') {
-          page = const SettingsPage();
-        }
-        return MaterialPageRoute(builder: (_) => page, settings: settings);
-      },
+      onGenerateRoute: generateRoute,
     );
   }
+}
+
+/// 路由生成（App 与测试入口共用）。
+Route<dynamic> generateRoute(RouteSettings settings) {
+  final segs = settings.name == '/' ? <String>[] : settings.name!.split('/').where((s) => s.isNotEmpty).toList();
+  Widget page = const PeoplePage();
+  if (segs.isEmpty) {
+    page = const PeoplePage();
+  } else if (segs.length == 3 && segs[0] == 'person' && segs[2] == 'map') {
+    page = PersonShell(personId: segs[1], initialTab: 0);
+  } else if (segs.length == 3 && segs[0] == 'person' && segs[2] == 'timeline') {
+    page = PersonShell(personId: segs[1], initialTab: 1);
+  } else if (segs.length == 3 && segs[0] == 'person' && segs[2] == 'stats') {
+    page = PersonShell(personId: segs[1], initialTab: 2);
+  } else if (segs.length == 4 && segs[0] == 'person' && segs[2] == 'trip') {
+    page = TripDetailPage(personId: segs[1], tripId: segs[3]);
+  } else if (segs.length == 1 && segs[0] == 'settings') {
+    page = const SettingsPage();
+  }
+  return MaterialPageRoute(builder: (_) => page, settings: settings);
 }

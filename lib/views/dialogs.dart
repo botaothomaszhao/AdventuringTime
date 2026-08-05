@@ -165,11 +165,13 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
                 contentPadding: EdgeInsets.zero,
               ),
             TextField(
+              key: const ValueKey('wp-name'),
               controller: _name,
               decoration: const InputDecoration(labelText: '名称', border: OutlineInputBorder()),
             ),
             const SizedBox(height: 8),
             TextField(
+              key: const ValueKey('wp-desc'),
               controller: _desc,
               decoration: const InputDecoration(labelText: '说明', border: OutlineInputBorder()),
               maxLines: 2,
@@ -274,8 +276,8 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-        FilledButton(onPressed: _submit, child: const Text('保存')),
+        TextButton(key: const ValueKey('dialog-cancel'), onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        FilledButton(key: const ValueKey('dialog-save'), onPressed: _submit, child: const Text('保存')),
       ],
     );
   }
@@ -387,16 +389,16 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          TextField(
-            controller: _name,
-            decoration: const InputDecoration(labelText: '名称', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _desc,
-            decoration: const InputDecoration(labelText: '说明', border: OutlineInputBorder()),
-            maxLines: 2,
-          ),
+            TextField(
+              controller: _name,
+              decoration: const InputDecoration(labelText: '名称', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _desc,
+              decoration: const InputDecoration(labelText: '说明', border: OutlineInputBorder()),
+              maxLines: 2,
+            ),
           const SizedBox(height: 8),
           Row(
             children: [

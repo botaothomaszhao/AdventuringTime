@@ -127,6 +127,12 @@ class PersonDataNotifier extends FamilyAsyncNotifier<PersonData, String> {
     return repo.media.write(ext, bytes);
   }
 
+  /// 从现有文件导入媒体（测试/导入用）。
+  Future<String> addMediaFromPath(File src) async {
+    final repo = await _repo();
+    return repo.media.import(src);
+  }
+
   Future<void> deleteMedia(String mediaId) async {
     final repo = await _repo();
     await repo.media.delete(mediaId);
