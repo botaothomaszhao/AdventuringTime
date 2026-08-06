@@ -221,15 +221,21 @@ data/
 - 按日期分组列出路径与地点，点击跳地图
 - 照片墙（行程引用的所有媒体）
 
-### 6.6 安卓实时轨迹记录
+### 6.6 安卓实时轨迹记录（已实现，与下述有出入时以本标注为准）
 
 - 自写 Kotlin 前台服务插件（method channel，channel 名 `adventuring_time/location`）：
-  - AndroidManifest：`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_LOCATION`、`ACCESS_FINE_LOCATION`、`ACCESS_COARSE_LOCATION`、`POST_NOTIFICATIONS`；服务类 `LocationForegroundService`
-  - 开始/暂停/继续/停止：通知栏常驻通知"正在记录轨迹"
-  - 首次启动请求精确位置权限与电池优化白名单（`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` 尝试，失败不阻塞）
-- 采样规则：**位移 > 20m 或 时间间隔 > 30s** 记一点（geolocator 流式回调中判断）
-- UI：记录页（开始/暂停/继续/停止按钮 + 实时点计数 + 已记录里程）；停止后弹出保存：选择/新建行程、补文字、附图
-- 停止后生成的轨迹存为该行程的一条 trk（含时间戳），可继续编辑
+  - 服务类 `LocationForegroundService`：系统 `LocationManager` 定位（GPS 优先、网络兜底，GPS 有 fix 时 15s 内忽略网络定位点防抖动）
+  - AndroidManifest 权限：`INTERNET`（release 必须显式声明，debug 由 Flutter 自动注入）、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_LOCATION`、`ACCESS_FINE_LOCATION`、`ACCESS_COARSE_LOCATION`、`POST_NOTIFICATIONS`、`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
+  - 采样在原生侧（不在 geolocator 流回调）：**位移 > 20m 或间隔 > 30s** 记一点，点即写落盘 `filesDir/rec_session.jsonl`（JSONL，每行一原始采样点）
+  - 会话状态文件 `rec_state`（格式 `state|startMs`）：服务被杀后 `START_STICKY` 重启时按状态恢复采样，继续向同一文件追加，**记录不中断、数据不丢**；重进应用从文件拉回全量点恢复会话（服务彻底未重启时恢复为暂停态，可点继续接着记或停止保存）
+  - 首次启动请求精确位置权限与电池优化白名单（`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`，失败不阻塞）；Android 13+ 请求通知权限
+  - 暂停/恢复由服务停止/注册定位更新实现，不丢点
+- UI 在地图页内（**没有独立记录页**）：
+  - 左上角按钮：空闲=开始记录（红点图标），记录中/暂停=停止并弹出保存
+  - 右上角信息条：状态点、记录时长（会话开始时间随状态文件持久化，重启不归零）、已记录里程、暂停/继续按钮
+  - 记录轨迹以橙色线实时绘制在地图上；蓝点实时位置（geolocator 位置流），**添加地点模式下点击蓝点=在当前位置添加地点**；右下角按钮=回到我的位置并把地图方向复位正北（双指旋转已启用）
+  - 编辑模式下隐藏记录浮层防遮挡
+- 停止后保存对话框：选择/新建行程、轨迹名、说明、附图，存为该行程一条 trk（`showRecordSaveDialog`，在 dialogs.dart）
 
 ### 6.7 局域网同步
 
@@ -323,38 +329,38 @@ sync(personId, remote):
 
 ```
 /people               人列表（增删、整包导入导出）
-/person/<id>/map      主地图（图层开关、搜索框、绘制模式、选中弹卡）
+/person/<id>/map      主地图（图层开关、搜索框、绘制模式、选中弹卡；安卓含蓝点/记录浮层/回位按钮）
 /person/<id>/timeline 时间线
 /person/<id>/stats    统计
 /trips/<tripId>       行程详情（分组列表、照片墙、编辑）
 /edit/...             各类编辑页/编辑模式（在地图页内为主）
-/record               定位记录页（Android）
-/settings             设置：瓦片源URL、同步服务器开关/端口/IP、数据目录、关于
+/settings             设置：瓦片源URL（保存即时生效、可清缓存）、同步服务器开关/端口/IP、数据目录、关于
 ```
 
 导航：人列表进入后底部导航（地图/时间线/统计）；编辑以地图内交互为主，详情页为辅。
+轨迹记录入口并入地图页（左上角按钮），无独立 /record 页。
 
 ## 10. 实施顺序（里程碑与验收标准）
 
-**M1 骨架与存储层**
+**M1 骨架与存储层** ✅ 已完成
 - Flutter 项目（windows+android）、目录结构、Riverpod 初始化
 - 数据模型类 + GPX 读写（含全部 atrip 扩展）+ life.gpx 整文件读写 + 媒体池 + 备份目录
 - 单测：GPX round-trip、扩展字段读写、事件移入移出、备份逻辑
 - 验收：单测全绿
 
-**M2 地图与编辑**
-- flutter_map + OSM、图层开关、点击弹卡
-- 地点/路径/事件/行程的增删改（含顶点编辑）、Nominatim 搜索
+**M2 地图与编辑** ✅ 已完成
+- flutter_map + 瓦片缓存、图层开关、点击弹卡
+- 地点/路径/事件/行程的增删改（含顶点编辑）、地址搜索（Photon）
 - 时间线视图、人生轨迹线（连线规则 + 实/虚线）、统计计算
-- 验收：手工全流程可用（建人→搜"xx镇"→加事件/行程→编辑→看到轨迹线与统计）
+- 验收：手工全流程可用
 
-**M3 详情与媒体**
+**M3 详情与媒体** ✅ 已完成
 - 行程详情、照片墙、封面、图片上传/删除
 - 验收：图片可见、导出引用正确
 
-**M4 安卓定位**
+**M4 安卓定位** ✅ 已完成
 - Kotlin 前台服务插件、采样、记录页、停止保存为 trk
-- 验收：真机从 A 到 B 记录，轨迹生成且可编辑
+- 实测验收：真机从 A 到 B 记录，轨迹生成且可编辑（详见 §6.6 实现标注）
 
 **M5 局域网同步**
 - Windows 服务器 API、Android 客户端、合并逻辑、备份与恢复 UI
@@ -377,3 +383,12 @@ sync(personId, remote):
 - Android 厂商省电策略可能杀后台：前台服务 + 电池白名单请求，README/设置中说明
 - 人生轨迹线为派生视图，量大时（数千点）渲染用简化抽稀（Douglas-Peucker，阈值按缩放级别），保证流畅
 - 跨人引用起终点不支持（选择器只列同人事件）
+
+## 13. 实现偏差与注意事项（开发过程中记录）
+
+- **release APK 必须显式声明 INTERNET 权限**：Flutter 只在 debug/profile 构建自动注入 INTERNET，release 不会，缺了地图瓦片/搜索全部加载失败（曾踩坑）
+- **瓦片无数据区域降级（未实施）**：flutter_map 8 对"加载中/未加载"瓦片会自动用低 zoom 祖先瓦片兜底，但对**加载失败**（404/无数据）的瓦片不兜底（灰块）。可行方案已验证：`TileLayer.errorTileCallback` 中逐级取祖先瓦片，替换 `tile.imageInfo` + `notifyListeners`（RawImage BoxFit.fill 自动拉伸，即简单放大）；Esri 无数据区域返回 404 走该路径，完全离线且低 zoom 无缓存时保持灰块。待用户确认后实施
+- **瓦片源选择**：Esri（墙内可用，国内部分区域高等级无数据）、OSM（需墙外）、Carto Voyager（实测墙内可用且部分区域放大等级更高）；保存即时生效（invalidate tileUrlProvider），设置页有"清除瓦片缓存"按钮；无数据时提示用户更换瓦片源
+- **版本号规则**：`version: 1.0.x+buildNumber`，每次发版 versionName 最后一位自增、buildNumber 同步递增（Android 覆盖安装强校验 versionCode 必须单调增大）
+- **安卓构建环境**：本机 Android SDK 位于 `D:\Android\sdk`；gradle Kotlin 增量缓存冲突（Could not close incremental caches）已通过 `org.gradle.parallel=false` + `kotlin.incremental=false`（android/gradle.properties）解决；墙内镜像已配（aliyun/tencent gradle wrapper）
+- **真机测试流程**：手机（红米 Note 12 Turbo）开发者选项的"USB 安装"需登录小米账号不可用 → 用 `adb push` + 手机文件管理器手动安装；签名变化（如 debug→release）需先卸载重装；adb 在 `D:\Android\sdk\platform-tools\adb.exe`

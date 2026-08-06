@@ -5,8 +5,9 @@
 ## 开发环境
 
 - **Flutter SDK**：3.44.8 stable，位于 `D:\flutter`；Dart 3.12.2 随自带，`dart` 命令同目录
+- **Android 工具链**：SDK 位于 `D:\Android\sdk`（36.0.0），`flutter doctor` Android 绿灯；Java 23 已装；adb 在 `D:\Android\sdk\platform-tools\adb.exe`
+- **真机**：红米 Note 12 Turbo（开发者选项"USB 安装"需登录小米账号，不可用 → 用 adb push + 手机文件管理器手动安装 APK）
 - **VS Build Tools 2022**：17.14.37，路径 `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools`；已装组件：MSVC C++ 工具集、CMake、Windows 10 SDK（19041），`flutter doctor` Windows 检查全绿
-- **Android 工具链**：未安装（项目开发前期不需要，`flutter doctor` 报 Android 红灯属预期）
 
 ### 已知坑：VS workload 标记
 
@@ -15,6 +16,10 @@
 已解决方式：手动补写实例的 `state.packages.json`，加入两个 Workload 条目（`C:\ProgramData\Microsoft\VisualStudio\Packages\_Instances\<实例id>\state.packages.json`）。
 
 **不要用 `setup.exe modify` 重装/改动组件**——它重写该文件会冲掉手动标记；若被冲掉，重跑补丁脚本 `C:\Users\botao\AppData\Local\Temp\opencode\fix_vs_state.ps1`（需管理员）。
+
+### 已知坑：gradle Kotlin 增量缓存冲突
+
+插件模块 Kotlin 编译任务并发写同一增量缓存报 `Could not close incremental caches ... Storage is already registered`，已通过 `android/gradle.properties` 中 `org.gradle.parallel=false` + `kotlin.incremental=false` 解决；若仍报错，先杀残留 java 进程（gradle/kotlin daemon）再构建。
 
 ### MCP
 
@@ -27,11 +32,15 @@
 flutter analyze lib            # 静态检查（仅看 error；driver_main 的两个 future 警告为已知）
 flutter test                   # 19 个测试，须全绿后提交
 flutter build windows --release
+flutter build apk --release    # 安卓 release（debug key 签名）；成功后 push 到手机：
+# & D:\Android\sdk\platform-tools\adb.exe push build\app\outputs\flutter-apk\app-release.apk /sdcard/Download/adventuring_time.apk
+# 手机文件管理器手动安装；签名变化（如 debug→release）需先卸载旧版
 ```
 
 - Flutter SDK 在 `D:\flutter`；新终端需 `$env:Path += ';D:\flutter\bin'`
-- Release 产物：`build\windows\x64\runner\Release\adventuring_time.exe`
-- 墙内网络：瓦片用 Esri（默认，WGS-84）；搜索/反地理编码用 Photon。OSM/Nominatim 不可用，勿切换验证
+- Release 产物：`build\windows\x64\runner\Release\adventuring_time.exe`（构建前若 exe 被占用需先杀 `adventuring_time` 进程）
+- 墙内网络：瓦片用 Esri（默认，WGS-84；国内部分区域高等级无数据，可换 Carto Voyager——实测墙内可用）；搜索/反地理编码用 Photon。OSM/Nominatim 不可用，勿切换验证
+- **版本号规则**：`pubspec.yaml` 的 `version: 1.0.x+buildNumber`，每次发 APK 时 versionName 最后一位自增、buildNumber 同步递增（Android 覆盖安装强校验 versionCode 单调增大，buildNumber 不能回退）
 
 ## 架构（lib/）
 
@@ -44,12 +53,13 @@ flutter build windows --release
 | `lifecycle.dart` | 纯函数：haversine、buildLifePath（轨迹线）、tripStats、formatLatLng |
 | `geo_search.dart` | Photon 搜索 searchAddress / 反向 reverseAddress |
 | `tile_cache.dart` | 瓦片磁盘缓存 |
-| `views/map_page.dart` | 地图主页面（核心，改动最多） |
-| `views/dialogs.dart` | 全部表单对话框（地点/路径/行程/人）；`pickValueDialog` 年/月选择器 |
+| `location_service.dart` | 安卓定位通道封装 + `recordingProvider`（RecordingNotifier 记录会话，恢复/暂停/停止）；Windows 不 watch |
+| `views/map_page.dart` | 地图主页面（核心，改动最多）；安卓含蓝点、记录浮层（左上按钮/右上信息条/右下回位）、实时轨迹层 |
+| `views/dialogs.dart` | 全部表单对话框（地点/路径/行程/人）；`pickValueDialog` 年/月选择器；`showRecordSaveDialog` 轨迹保存 |
 | `views/timeline_page.dart` | 时间线（长期地点+行程混合，`buildTimelineItems` 纯函数可测） |
 | `views/trip_detail_page.dart` | 行程详情（说明内联编辑 `_EditableDesc`） |
 | `views/person_shell.dart` | 主壳（Tab 地图/时间线/统计）+ `mapPageActionProvider`（跨页定位地图） |
-| `views/stats_page.dart` / `settings_page.dart` / `widgets.dart` | 统计 / 设置（瓦片源、数据目录）/ 公共组件 |
+| `views/stats_page.dart` / `settings_page.dart` / `widgets.dart` | 统计 / 设置（瓦片源即时生效、清除瓦片缓存、数据目录）/ 公共组件（`pickImageBytes` 分平台） |
 | `driver_main.dart` | MCP 测试入口（见下） |
 
 ## 数据模型要点
@@ -66,6 +76,7 @@ flutter build windows --release
 - **轨迹线** `buildLifePath`：长期地点+行程按时间排序；行程内部路径/地点/起点长期地点按时间相连、**最后连回终点**；段带 `tripId` 供点击打开行程。改它必跑 `test/lifecycle_test.dart`
 - **绘制路径**：点"绘制路径"→ 点击落点（onTapDown 加点，onTapCancel 撤销误加点）→ 工具栏"完成"→ 选行程 → 路径对话框。预览线必须在 FlutterMap children 内且 `_draftPoints.isNotEmpty` 才渲染（放外面会抛 MapCamera.of 错误页，空点会断言崩溃——两个都踩过坑）
 - **添加地点**：地图落点 → 对话框（名称可异步反向地理编码、到达时间必填、长期地点或选所属行程）。从行程卡片"添加地点"进入时预选行程并预填时间（行程开始或最后地点/路径时间）
+- **安卓定位记录**（Kotlin 前台服务 + 地图页浮层，详见 PLAN.md §6.6）：左上按钮开始/停止、右上信息条（时长/里程/暂停继续）、橙色实时轨迹层、蓝点（添加地点模式下点蓝点=在当前位置添加地点）、右下角回位按钮（方向复位正北）。采样（20m/30s）与落盘都在原生侧（`filesDir/rec_session.jsonl` + `rec_state`），被杀自动恢复续记；重进 app 时 RecordingNotifier 从原生拉回会话。Windows 上所有相关 UI 走 `Platform.isAndroid` 分支且不 watch `recordingProvider`
 
 ## 测试与验证
 
@@ -81,3 +92,7 @@ flutter build windows --release
 - `analysis_options.yaml` 用 flutter_lints 6；勿引入新的状态管理/地图方案
 - 修改 models/gpx_io 时同步检查 `test/gpx_io_test.dart` 与 `storage_test.dart`
 - 地图图层开关（_LayerToggles）是内存态，默认全开
+- **GitHub 推送**：本机直连 github.com 不通。git push 失败就停下来，请用户开梯子后重试——不要自己配置代理或连代理
+- **release APK 必须显式声明 INTERNET 权限**（main AndroidManifest.xml）：Flutter 只在 debug/profile 构建自动注入，release 缺了会瓦片/搜索全部失败（踩过坑）
+- 瓦片源在设置页保存后即时生效（invalidate tileUrlProvider）；设置页有"清除瓦片缓存"按钮（删应用数据/tiles 目录）
+- 瓦片无数据区域（Esri 国内部分高等级）当前直接显示灰块；低 zoom 放大兜底方案已论证未实施（见 PLAN.md §13）
