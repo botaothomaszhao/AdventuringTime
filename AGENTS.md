@@ -32,8 +32,8 @@
 flutter analyze lib            # 静态检查（仅看 error；driver_main 的两个 future 警告为已知）
 flutter test                   # 19 个测试，须全绿后提交
 flutter build windows --release
-flutter build apk --release    # 安卓 release（debug key 签名）；成功后 push 到手机：
-# & D:\Android\sdk\platform-tools\adb.exe push build\app\outputs\flutter-apk\app-release.apk /sdcard/Download/adventuring_time.apk
+flutter build apk --release    # 安卓 release（debug key 签名）；成功后 push 到手机（文件名带版本号，如 adventuring_time_1.1.3.apk）：
+# & D:\Android\sdk\platform-tools\adb.exe push build\app\outputs\flutter-apk\app-release.apk /sdcard/Download/adventuring_time_<versionName>.apk
 # 手机文件管理器手动安装；签名变化（如 debug→release）需先卸载旧版
 ```
 

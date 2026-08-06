@@ -44,10 +44,16 @@ class _Selected {
   final String? detail;
   final DateTime? time;
   final List<Widget> Function() actions;
-  const _Selected({required this.label, this.detail, this.time, required this.actions});
+  const _Selected({
+    required this.label,
+    this.detail,
+    this.time,
+    required this.actions,
+  });
 }
 
-class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClientMixin {
+class _MapPageState extends ConsumerState<MapPage>
+    with AutomaticKeepAliveClientMixin {
   final MapController _mapCtrl = MapController();
   final Map<String, _LayerToggles> _toggles = {};
   _EditMode _mode = _EditMode.none;
@@ -57,15 +63,21 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   List<GeoResult> _searchResults = [];
   String _searchQ = '';
   bool _searching = false;
-  String? _searchError;  final Map<String, List<LatLng>> _translateOrig = {};
+  String? _searchError;
+  final Map<String, List<LatLng>> _translateOrig = {};
   String? _pendingTripId; // 添加地点模式的目标行程（从行程弹窗进入时预选）
   DiskCachedTileProvider? _tileProvider;
   LatLng? _myPos; // 实时定位点（仅 Android）
   StreamSubscription<Position>? _posSub;
+  int _activePointers = 0; // 地图上当前按下的触点数量
 
   static const _palette = [
-    Color(0xFF2E7D32), Color(0xFFC62828), Color(0xFF1565C0),
-    Color(0xFF6A1B9A), Color(0xFFEF6C00), Color(0xFF00838F),
+    Color(0xFF2E7D32),
+    Color(0xFFC62828),
+    Color(0xFF1565C0),
+    Color(0xFF6A1B9A),
+    Color(0xFFEF6C00),
+    Color(0xFF00838F),
   ];
 
   static const _minZoom = 1.0;
@@ -91,20 +103,23 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   Future<void> _initMyLocation() async {
     if (!await LocationService.ensureLocationPermission()) return;
     if (!mounted) return;
-    _posSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
-      ),
-    ).listen((p) {
-      if (mounted) setState(() => _myPos = LatLng(p.latitude, p.longitude));
-    });
+    _posSub =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 5,
+          ),
+        ).listen((p) {
+          if (mounted) setState(() => _myPos = LatLng(p.latitude, p.longitude));
+        });
   }
 
   /// 蓝点实时位置：记录中随采样点移动（geolocator 流可能与前台服务 GPS 请求冲突而冻结），
   /// 空闲时用 geolocator 实时流。
   LatLng? _currentBluePos(RecordState? rec) {
-    if (rec != null && rec.status == RecordStatus.recording && rec.points.isNotEmpty) {
+    if (rec != null &&
+        rec.status == RecordStatus.recording &&
+        rec.points.isNotEmpty) {
       return rec.points.last.latLng;
     }
     return _myPos;
@@ -113,17 +128,22 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   /// 添加地点模式下点击蓝点：在当前位置添加地点。
   void _onMyPosTap() {
     if (_mode != _EditMode.addPlace) return;
-    final p = _currentBluePos(Platform.isAndroid ? ref.read(recordingProvider) : null);
+    final p = _currentBluePos(
+      Platform.isAndroid ? ref.read(recordingProvider) : null,
+    );
     if (p == null) return;
     _addWaypointAt(p);
   }
 
   /// 相机回到我的位置并把地图方向复位到正北。
   void _centerOnMyPos() {
-    final p = _currentBluePos(Platform.isAndroid ? ref.read(recordingProvider) : null);
+    final p = _currentBluePos(
+      Platform.isAndroid ? ref.read(recordingProvider) : null,
+    );
     if (p == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('定位不可用，请检查定位权限与开关')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('定位不可用，请检查定位权限与开关')));
       return;
     }
     _mapCtrl.move(p, _mapCtrl.camera.zoom);
@@ -149,8 +169,9 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     if (rec.status == RecordStatus.idle) {
       if (!await LocationService.ensureLocationPermission()) {
         if (mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(const SnackBar(content: Text('未获得定位权限，无法记录')));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('未获得定位权限，无法记录')));
         }
         return;
       }
@@ -159,15 +180,20 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
       final pts = await ref.read(recordingProvider.notifier).stop();
       if (!mounted) return;
       if (pts.isEmpty) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('没有记录到有效定位点')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('没有记录到有效定位点')));
         return;
       }
       final ok = await showRecordSaveDialog(
-          context, personId: widget.personId, points: pts);
+        context,
+        personId: widget.personId,
+        points: pts,
+      );
       if (ok && mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('轨迹已保存')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('轨迹已保存')));
       }
     }
   }
@@ -181,7 +207,9 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     final ab = sb - sa;
     final ap = sp - sa;
     final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
-    final t = len2 == 0 ? 0.0 : ((ap.dx * ab.dx + ap.dy * ab.dy) / len2).clamp(0.0, 1.0);
+    final t = len2 == 0
+        ? 0.0
+        : ((ap.dx * ab.dx + ap.dy * ab.dy) / len2).clamp(0.0, 1.0);
     return (sp - (sa + ab * t)).distance;
   }
 
@@ -194,7 +222,12 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     for (final t in d.trips) {
       for (final p in t.gpx.paths) {
         for (var i = 1; i < p.points.length; i++) {
-          if (_distToSegmentPx(tap, p.points[i - 1].latLng, p.points[i].latLng) <= thresh) {
+          if (_distToSegmentPx(
+                tap,
+                p.points[i - 1].latLng,
+                p.points[i].latLng,
+              ) <=
+              thresh) {
             _selectPath(p, t.meta.id, widget.personId);
             return;
           }
@@ -234,7 +267,8 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     });
   }
 
-  _LayerToggles _togglesOf(String personId) => _toggles.putIfAbsent(personId, _LayerToggles.new);
+  _LayerToggles _togglesOf(String personId) =>
+      _toggles.putIfAbsent(personId, _LayerToggles.new);
 
   Future<void> _startAddTrip() async {
     final form = await showTripDialog(context, personId: widget.personId);
@@ -253,16 +287,22 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
       updatedAt: now,
     );
     form.applyTo(trip);
-    await ref.read(personDataProvider(widget.personId).notifier).createTrip(trip);
+    await ref
+        .read(personDataProvider(widget.personId).notifier)
+        .createTrip(trip);
   }
 
   // ---------- 数据 ----------
 
   (List<Person>, List<(String?, GpxFile)>) _peopleData() {
-    final all = ref.watch(peopleProvider).maybeWhen(data: (l) => l, orElse: () => <Person>[]);
+    final all = ref
+        .watch(peopleProvider)
+        .maybeWhen(data: (l) => l, orElse: () => <Person>[]);
     final people = all.where((p) => p.id == widget.personId).toList();
     final containers = <(String?, GpxFile)>[];
-    final d = ref.watch(personDataProvider(widget.personId)).maybeWhen(data: (d) => d, orElse: () => null);
+    final d = ref
+        .watch(personDataProvider(widget.personId))
+        .maybeWhen(data: (d) => d, orElse: () => null);
     if (d != null) {
       for (final t in d.trips) {
         containers.add((t.meta.id, t.gpx));
@@ -273,19 +313,24 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   }
 
   List<(String?, GpxFile)> _allContainers(String personId) {
-    final d = ref.read(personDataProvider(personId)).maybeWhen(data: (d) => d, orElse: () => null);
+    final d = ref
+        .read(personDataProvider(personId))
+        .maybeWhen(data: (d) => d, orElse: () => null);
     if (d == null) return [];
     return [(null, d.life), for (final t in d.trips) (t.meta.id, t.gpx)];
   }
 
-  List<Waypoint> _allWaypoints(String personId) =>
-      [for (final (_, g) in _allContainers(personId)) ...g.waypoints];
+  List<Waypoint> _allWaypoints(String personId) => [
+    for (final (_, g) in _allContainers(personId)) ...g.waypoints,
+  ];
 
-  List<PathData> _allPaths(String personId) =>
-      [for (final (_, g) in _allContainers(personId)) ...g.paths];
+  List<PathData> _allPaths(String personId) => [
+    for (final (_, g) in _allContainers(personId)) ...g.paths,
+  ];
 
-  PersonData? _personData() =>
-      ref.read(personDataProvider(widget.personId)).maybeWhen(data: (d) => d, orElse: () => null);
+  PersonData? _personData() => ref
+      .read(personDataProvider(widget.personId))
+      .maybeWhen(data: (d) => d, orElse: () => null);
 
   // ---------- 选中弹卡 ----------
 
@@ -305,10 +350,14 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
                 leading: const Icon(Icons.swap_horiz),
                 title: Text(tripId == null ? '移入行程' : '移出行程'),
                 onTap: () async {
-                  final notifier = ref.read(personDataProvider(personId).notifier);
+                  final notifier = ref.read(
+                    personDataProvider(personId).notifier,
+                  );
                   if (tripId == null) {
                     if (trips.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('还没有行程，先新建一个')));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('还没有行程，先新建一个')),
+                      );
                       return;
                     }
                     final choice = await _pickTrip(trips);
@@ -326,11 +375,18 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
               leading: const Icon(Icons.edit_outlined),
               title: const Text('编辑'),
               onTap: () async {
-                final form = await showWaypointDialog(context, personId: personId, existing: w, tripId: tripId);
+                final form = await showWaypointDialog(
+                  context,
+                  personId: personId,
+                  existing: w,
+                  tripId: tripId,
+                );
                 if (form == null) return;
                 form.applyTo(w);
                 w.updatedAt = DateTime.now();
-                final notifier = ref.read(personDataProvider(personId).notifier);
+                final notifier = ref.read(
+                  personDataProvider(personId).notifier,
+                );
                 if (tripId == null) {
                   await notifier.saveLifeWaypoint(w);
                 } else {
@@ -343,13 +399,24 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
               leading: const Icon(Icons.delete_outline),
               title: const Text('删除'),
               onTap: () async {
-                final ok = await confirmDialog(context, '删除', '确定删除该${w.isEvent ? '长期地点' : '地点'}？');
+                final ok = await confirmDialog(
+                  context,
+                  '删除',
+                  '确定删除该${w.isEvent ? '长期地点' : '地点'}？',
+                );
                 if (!ok) return;
                 if (w.mediaId != null) {
-                  await deleteMediaIfUnused(ref, personId, w.mediaId!,
-                      waypoints: _allWaypoints(personId), paths: _allPaths(personId));
+                  await deleteMediaIfUnused(
+                    ref,
+                    personId,
+                    w.mediaId!,
+                    waypoints: _allWaypoints(personId),
+                    paths: _allPaths(personId),
+                  );
                 }
-                final notifier = ref.read(personDataProvider(personId).notifier);
+                final notifier = ref.read(
+                  personDataProvider(personId).notifier,
+                );
                 if (tripId == null) {
                   await notifier.deleteLifeWaypoint(w.id);
                 } else {
@@ -365,11 +432,14 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   }
 
   void _selectPath(PathData p, String tripId, String personId) {
-    final length = formatMeters(pathLengthM([for (final pt in p.points) pt.latLng]));
+    final length = formatMeters(
+      pathLengthM([for (final pt in p.points) pt.latLng]),
+    );
     setState(() {
       _selected = _Selected(
         label: p.name.isEmpty ? '（未命名路径）' : p.name,
-        detail: '${p.isGps ? 'GPS 轨迹' : '手绘路径'} · 长度 $length${p.desc != null ? '\n${p.desc}' : ''}',
+        detail:
+            '${p.isGps ? 'GPS 轨迹' : '手绘路径'} · 长度 $length${p.desc != null ? '\n${p.desc}' : ''}',
         actions: () {
           return [
             ListTile(
@@ -396,7 +466,9 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
                 if (form == null) return;
                 form.applyTo(p);
                 p.updatedAt = DateTime.now();
-                await ref.read(personDataProvider(personId).notifier).saveTripPath(tripId, p);
+                await ref
+                    .read(personDataProvider(personId).notifier)
+                    .saveTripPath(tripId, p);
                 _closeSheet();
               },
             ),
@@ -407,10 +479,17 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
                 final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
                 if (!ok) return;
                 if (p.mediaId != null) {
-                  await deleteMediaIfUnused(ref, personId, p.mediaId!,
-                      waypoints: _allWaypoints(personId), paths: _allPaths(personId));
+                  await deleteMediaIfUnused(
+                    ref,
+                    personId,
+                    p.mediaId!,
+                    waypoints: _allWaypoints(personId),
+                    paths: _allPaths(personId),
+                  );
                 }
-                await ref.read(personDataProvider(personId).notifier).deleteTripPath(tripId, p.id);
+                await ref
+                    .read(personDataProvider(personId).notifier)
+                    .deleteTripPath(tripId, p.id);
                 _closeSheet();
               },
             ),
@@ -425,7 +504,8 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     setState(() {
       _selected = _Selected(
         label: t.meta.name.isEmpty ? '（未命名行程）' : t.meta.name,
-        detail: '${fmtDate(t.meta.startDate)} 至 ${fmtDate(t.meta.endDate)} · ${stats.placeCount} 个地点 · ${stats.pathCount} 条路径',
+        detail:
+            '${fmtDate(t.meta.startDate)} 至 ${fmtDate(t.meta.endDate)} · ${stats.placeCount} 个地点 · ${stats.pathCount} 条路径',
         time: t.meta.startDate,
         actions: () {
           return [
@@ -444,11 +524,17 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
               leading: const Icon(Icons.edit_outlined),
               title: const Text('编辑行程'),
               onTap: () async {
-                final form = await showTripDialog(context, personId: personId, existing: t.meta);
+                final form = await showTripDialog(
+                  context,
+                  personId: personId,
+                  existing: t.meta,
+                );
                 if (form == null) return;
                 form.applyTo(t.meta);
                 t.meta.updatedAt = DateTime.now();
-                await ref.read(personDataProvider(personId).notifier).saveTripMeta(t.meta);
+                await ref
+                    .read(personDataProvider(personId).notifier)
+                    .saveTripMeta(t.meta);
                 _closeSheet();
               },
             ),
@@ -457,16 +543,25 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
               title: const Text('查看详情'),
               onTap: () {
                 _closeSheet();
-                Navigator.pushNamed(context, '/person/$personId/trip/${t.meta.id}');
+                Navigator.pushNamed(
+                  context,
+                  '/person/$personId/trip/${t.meta.id}',
+                );
               },
             ),
             ListTile(
               leading: const Icon(Icons.delete_outline),
               title: const Text('删除'),
               onTap: () async {
-                final ok = await confirmDialog(context, '删除行程', '确定删除该行程（含其中地点与路径）？');
+                final ok = await confirmDialog(
+                  context,
+                  '删除行程',
+                  '确定删除该行程（含其中地点与路径）？',
+                );
                 if (!ok) return;
-                await ref.read(personDataProvider(personId).notifier).deleteTrip(t.meta.id);
+                await ref
+                    .read(personDataProvider(personId).notifier)
+                    .deleteTrip(t.meta.id);
                 _closeSheet();
               },
             ),
@@ -504,6 +599,9 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   // ---------- 地图事件 ----------
 
   void _onTap(TapPosition pos, LatLng latlng) {
+    // 多点触控下忽略"残留点击"：触点抬起时其余手指仍在按下（>=3 指滑动场景），
+    // 此时不应把它当单指点击处理，否则连续弹窗会引发布局/键盘抖动导致卡死。
+    if (_activePointers > 0) return;
     switch (_mode) {
       case _EditMode.none:
         _openAt(latlng);
@@ -528,7 +626,9 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
       initialPos: latlng,
       defaultName: defaultName,
       tripId: tripId,
-      presetTime: tripId == null ? null : _presetTripTime(_personData()?.tripById(tripId)),
+      presetTime: tripId == null
+          ? null
+          : _presetTripTime(_personData()?.tripById(tripId)),
     );
     if (form == null) {
       if (mounted) {
@@ -604,18 +704,33 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     if (trips.isEmpty) {
       final form = await showTripDialog(context, personId: widget.personId);
       if (form == null) {
-        if (mounted) setState(() { _mode = _EditMode.none; _draftPoints.clear(); });
+        if (mounted)
+          setState(() {
+            _mode = _EditMode.none;
+            _draftPoints.clear();
+          });
         return;
       }
       final now = DateTime.now();
-      final trip = Trip(id: newId(), name: form.name, createdAt: now, updatedAt: now);
+      final trip = Trip(
+        id: newId(),
+        name: form.name,
+        createdAt: now,
+        updatedAt: now,
+      );
       form.applyTo(trip);
-      await ref.read(personDataProvider(widget.personId).notifier).createTrip(trip);
+      await ref
+          .read(personDataProvider(widget.personId).notifier)
+          .createTrip(trip);
       trips.add(TripBundle(meta: trip, gpx: GpxFile()));
     }
     final trip = await _pickTrip(trips);
     if (trip == null) {
-      if (mounted) setState(() { _mode = _EditMode.none; _draftPoints.clear(); });
+      if (mounted)
+        setState(() {
+          _mode = _EditMode.none;
+          _draftPoints.clear();
+        });
       return;
     }
     final form = await showPathDialog(context, personId: widget.personId);
@@ -631,8 +746,14 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
       createdAt: now,
       updatedAt: now,
     );
-    await ref.read(personDataProvider(widget.personId).notifier).saveTripPath(trip.id, path);
-    if (mounted) setState(() { _mode = _EditMode.none; _draftPoints.clear(); });
+    await ref
+        .read(personDataProvider(widget.personId).notifier)
+        .saveTripPath(trip.id, path);
+    if (mounted)
+      setState(() {
+        _mode = _EditMode.none;
+        _draftPoints.clear();
+      });
   }
 
   // ---------- 顶点编辑 ----------
@@ -674,7 +795,9 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   Future<void> _savePath(PathData p) async {
     final key = _editPathKey()!;
     p.updatedAt = DateTime.now();
-    await ref.read(personDataProvider(widget.personId).notifier).saveTripPath(key.$1, p);
+    await ref
+        .read(personDataProvider(widget.personId).notifier)
+        .saveTripPath(key.$1, p);
   }
 
   // ---------- 平移 ----------
@@ -702,7 +825,10 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     for (var i = 0; i < path.points.length; i++) {
       final src = orig[i];
       final p0 = _mapCtrl.camera.latLngToScreenOffset(src);
-      path.points[i] = TrackPoint(_mapCtrl.camera.offsetToCrs(p0 + delta), path.points[i].time);
+      path.points[i] = TrackPoint(
+        _mapCtrl.camera.offsetToCrs(p0 + delta),
+        path.points[i].time,
+      );
     }
     _savePath(path);
   }
@@ -756,7 +882,9 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     });
 
     final (people, containers) = _peopleData();
-    final tileUrl = ref.watch(tileUrlProvider).maybeWhen(data: (u) => u, orElse: () => '');
+    final tileUrl = ref
+        .watch(tileUrlProvider)
+        .maybeWhen(data: (u) => u, orElse: () => '');
     // 记录会话状态（仅 Android，Windows 不 watch 避免调用原生通道）
     final rec = Platform.isAndroid ? ref.watch(recordingProvider) : null;
     // 绘制模式下保留拖动/缩放，但关闭双击缩放（双击用于结束绘制）；整体平移禁用缩放防误触
@@ -769,34 +897,40 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
 
     return Stack(
       children: [
-        FlutterMap(
-          mapController: _mapCtrl,
-          options: MapOptions(
-            initialCenter: const LatLng(35.0, 105.0),
-            initialZoom: 4,
-            interactionOptions: InteractionOptions(flags: flags),
-            onTap: _onTap,
-          ),
-          children: [
-            TileLayer(
-              urlTemplate: tileUrl,
-              userAgentPackageName: 'dev.adventuring.time',
-              tileProvider: _tileProvider ?? CancellableNetworkTileProvider(),
+        Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: (_) => _activePointers++,
+          onPointerUp: (_) => _activePointers--,
+          onPointerCancel: (_) => _activePointers--,
+          child: FlutterMap(
+            mapController: _mapCtrl,
+            options: MapOptions(
+              initialCenter: const LatLng(35.0, 105.0),
+              initialZoom: 4,
+              interactionOptions: InteractionOptions(flags: flags),
+              onTap: _onTap,
             ),
-            ..._buildLayers(people, containers, rec),
-            // 绘制模式预览线（必须在 FlutterMap 内，依赖 MapCamera；空点不渲染）
-            if (_mode == _EditMode.drawPath && _draftPoints.isNotEmpty)
-              PolylineLayer(
-                polylines: [
-                  Polyline(
-                    points: _draftPoints,
-                    strokeWidth: 3,
-                    color: Colors.orange,
-                    pattern: StrokePattern.dashed(segments: const [8, 6]),
-                  ),
-                ],
+            children: [
+              TileLayer(
+                urlTemplate: tileUrl,
+                userAgentPackageName: 'dev.adventuring.time',
+                tileProvider: _tileProvider ?? CancellableNetworkTileProvider(),
               ),
-          ],
+              ..._buildLayers(people, containers, rec),
+              // 绘制模式预览线（必须在 FlutterMap 内，依赖 MapCamera；空点不渲染）
+              if (_mode == _EditMode.drawPath && _draftPoints.isNotEmpty)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _draftPoints,
+                      strokeWidth: 3,
+                      color: Colors.orange,
+                      pattern: StrokePattern.dashed(segments: const [8, 6]),
+                    ),
+                  ],
+                ),
+            ],
+          ),
         ),
         if (_mode == _EditMode.drawPath)
           Positioned.fill(
@@ -832,17 +966,19 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
                     tooltip: '缩小',
                     onPressed: _zoomOut,
                   ),
-                  if (_mode == _EditMode.none)
-                    IconButton(
-                      icon: const Icon(Icons.my_location),
-                      tooltip: '回到我的位置，方向复位正北',
-                      onPressed: _centerOnMyPos,
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.my_location),
+                    tooltip: '回到我的位置，方向复位正北',
+                    onPressed: _centerOnMyPos,
+                  ),
                 ],
               ),
             ),
           ),
-        if (_mode != _EditMode.none) _buildModeBanner(),
+        if (_mode == _EditMode.drawPath ||
+            _mode == _EditMode.editPath ||
+            _mode == _EditMode.translatePath)
+          _buildModeBanner(),
         _buildSearchBar(),
         Positioned(left: 8, bottom: 8, child: _buildToolbar()),
         if (Platform.isAndroid && _mode == _EditMode.none)
@@ -854,12 +990,17 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
               tooltip: rec!.status == RecordStatus.idle ? '开始记录轨迹' : '停止记录并保存',
               onPressed: () => _onRecordButton(rec),
               child: Icon(
-                rec.status == RecordStatus.idle ? Icons.fiber_manual_record : Icons.stop,
+                rec.status == RecordStatus.idle
+                    ? Icons.fiber_manual_record
+                    : Icons.stop,
                 color: rec.status == RecordStatus.idle ? Colors.red : null,
               ),
             ),
           ),
-        if (Platform.isAndroid && _mode == _EditMode.none && rec != null && rec.status != RecordStatus.idle)
+        if (Platform.isAndroid &&
+            _mode == _EditMode.none &&
+            rec != null &&
+            rec.status != RecordStatus.idle)
           Positioned(
             top: 8,
             right: 8,
@@ -887,12 +1028,18 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   }
 
   List<Widget> _buildLayers(
-      List<Person> people, List<(String?, GpxFile)> containers, RecordState? rec) {
-    final layers = <Widget>[];    var colorIdx = 0;
+    List<Person> people,
+    List<(String?, GpxFile)> containers,
+    RecordState? rec,
+  ) {
+    final layers = <Widget>[];
+    var colorIdx = 0;
     final tripColors = <String, int>{};
     for (final p in people) {
       final toggles = _togglesOf(p.id);
-      final d = ref.watch(personDataProvider(p.id)).maybeWhen(data: (d) => d, orElse: () => null);
+      final d = ref
+          .watch(personDataProvider(p.id))
+          .maybeWhen(data: (d) => d, orElse: () => null);
       if (d == null) continue;
       final personLayers = <Widget>[];
 
@@ -902,7 +1049,10 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
       ]) {
         final color = tripId == null
             ? _palette[0]
-            : _palette[tripColors.putIfAbsent(tripId, () => colorIdx++ % _palette.length)];
+            : _palette[tripColors.putIfAbsent(
+                tripId,
+                () => colorIdx++ % _palette.length,
+              )];
 
         if (toggles.places || toggles.events) {
           final markers = <Marker>[];
@@ -910,21 +1060,25 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
             final isEv = w.isEvent;
             if (isEv && !toggles.events) continue;
             if (!isEv && !toggles.places) continue;
-            markers.add(Marker(
-              point: w.latLng,
-              width: 30,
-              height: 30,
-              alignment: Alignment.topCenter,
-              child: GestureDetector(
-                onTap: () => _selectWaypoint(w, tripId, p.id),
-                child: Icon(
-                  isEv ? Icons.star : Icons.location_on,
-                  color: isEv ? const Color(0xFFE65100) : const Color(0xFF2E7D32),
-                  size: isEv ? 26 : 24,
-                  shadows: const [Shadow(color: Colors.white, blurRadius: 3)],
+            markers.add(
+              Marker(
+                point: w.latLng,
+                width: 30,
+                height: 30,
+                alignment: Alignment.topCenter,
+                child: GestureDetector(
+                  onTap: () => _selectWaypoint(w, tripId, p.id),
+                  child: Icon(
+                    isEv ? Icons.star : Icons.location_on,
+                    color: isEv
+                        ? const Color(0xFFE65100)
+                        : const Color(0xFF2E7D32),
+                    size: isEv ? 26 : 24,
+                    shadows: const [Shadow(color: Colors.white, blurRadius: 3)],
+                  ),
                 ),
               ),
-            ));
+            );
           }
           personLayers.add(MarkerLayer(markers: markers));
         }
@@ -932,12 +1086,14 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
         if (toggles.paths) {
           final polylines = <Polyline>[];
           for (final path in gpx.paths) {
-            polylines.add(Polyline<String>(
-              points: [for (final pt in path.points) pt.latLng],
-              strokeWidth: 3,
-              color: color.withValues(alpha: 0.85),
-              hitValue: '$tripId|${path.id}',
-            ));
+            polylines.add(
+              Polyline<String>(
+                points: [for (final pt in path.points) pt.latLng],
+                strokeWidth: 3,
+                color: color.withValues(alpha: 0.85),
+                hitValue: '$tripId|${path.id}',
+              ),
+            );
           }
           personLayers.add(PolylineLayer(polylines: polylines));
         }
@@ -947,14 +1103,16 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
         final life = buildLifePath(d.life.events, d.trips);
         final segs = <Polyline>[];
         for (final s in life.segs) {
-          segs.add(Polyline(
-            points: [s.from, s.to],
-            strokeWidth: s.recorded ? 2.5 : 2,
-            color: const Color(0xFFB71C1C),
-            pattern: s.recorded
-                ? const StrokePattern.solid()
-                : StrokePattern.dashed(segments: const [8, 6]),
-          ));
+          segs.add(
+            Polyline(
+              points: [s.from, s.to],
+              strokeWidth: s.recorded ? 2.5 : 2,
+              color: const Color(0xFFB71C1C),
+              pattern: s.recorded
+                  ? const StrokePattern.solid()
+                  : StrokePattern.dashed(segments: const [8, 6]),
+            ),
+          );
         }
         if (segs.isNotEmpty) {
           personLayers.add(PolylineLayer(polylines: segs));
@@ -971,31 +1129,42 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
       for (var i = 0; i < editing.points.length; i++) {
         final idx = i;
         final pt = editing.points[i];
-        markers.add(Marker(
-          point: pt.latLng,
-          width: 26,
-          height: 26,
-          child: _DraggableVertex(
-            mapCtrl: _mapCtrl,
+        markers.add(
+          Marker(
             point: pt.latLng,
-            onMove: (ll) => _moveVertex(editing, idx, ll),
-            onTap: () => _deleteVertex(editing, idx),
+            width: 26,
+            height: 26,
+            child: _DraggableVertex(
+              mapCtrl: _mapCtrl,
+              point: pt.latLng,
+              onMove: (ll) => _moveVertex(editing, idx, ll),
+              onTap: () => _deleteVertex(editing, idx),
+            ),
           ),
-        ));
+        );
       }
       for (var i = 1; i < editing.points.length; i++) {
         final idx = i;
         final a = editing.points[i - 1].latLng;
         final b = editing.points[i].latLng;
-        markers.add(Marker(
-          point: LatLng((a.latitude + b.latitude) / 2, (a.longitude + b.longitude) / 2),
-          width: 22,
-          height: 22,
-          child: GestureDetector(
-            onTap: () => _insertVertex(editing, idx),
-            child: const Icon(Icons.add_circle_outline, color: Color(0xAA1565C0), size: 18),
+        markers.add(
+          Marker(
+            point: LatLng(
+              (a.latitude + b.latitude) / 2,
+              (a.longitude + b.longitude) / 2,
+            ),
+            width: 22,
+            height: 22,
+            child: GestureDetector(
+              onTap: () => _insertVertex(editing, idx),
+              child: const Icon(
+                Icons.add_circle_outline,
+                color: Color(0xAA1565C0),
+                size: 18,
+              ),
+            ),
           ),
-        ));
+        );
       }
       layers.add(MarkerLayer(markers: markers));
     }
@@ -1006,59 +1175,73 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
       for (var i = 0; i < _searchResults.length; i++) {
         final idx = i;
         final r = _searchResults[i];
-        numMarkers.add(Marker(
-          point: LatLng(r.lat, r.lon),
-          width: 30,
-          height: 30,
-          child: GestureDetector(
-            onTap: () => _gotoResult(r),
-            child: Container(
-              alignment: Alignment.center,
-              decoration: const BoxDecoration(
-                color: Color(0xFFD84315),
-                shape: BoxShape.circle,
-              ),
-              child: Text(
-                '${idx + 1}',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+        numMarkers.add(
+          Marker(
+            point: LatLng(r.lat, r.lon),
+            width: 30,
+            height: 30,
+            child: GestureDetector(
+              onTap: () => _gotoResult(r),
+              child: Container(
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFD84315),
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  '${idx + 1}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
               ),
             ),
           ),
-        ));
+        );
       }
       layers.add(MarkerLayer(markers: numMarkers));
     }
 
     // 记录中：本次会话轨迹实时预览
     if (rec != null && rec.points.length >= 2) {
-      layers.add(PolylineLayer(polylines: [
-        Polyline(
-          points: [for (final t in rec.points) t.latLng],
-          strokeWidth: 4,
-          color: const Color(0xFFFF5722),
+      layers.add(
+        PolylineLayer(
+          polylines: [
+            Polyline(
+              points: [for (final t in rec.points) t.latLng],
+              strokeWidth: 4,
+              color: const Color(0xFFFF5722),
+            ),
+          ],
         ),
-      ]));
+      );
     }
 
     // 蓝点：我的实时位置（仅 Android；记录中随采样点移动）
     final bluePos = _currentBluePos(rec);
     if (Platform.isAndroid && bluePos != null) {
-      layers.add(MarkerLayer(markers: [
-        Marker(
-          point: bluePos,
-          width: 40,
-          height: 40,
-          child: GestureDetector(
-            onTap: _onMyPosTap,
-            child: const Icon(
-              Icons.my_location,
-              color: Color(0xFF1565C0),
-              size: 30,
-              shadows: [Shadow(color: Colors.white, blurRadius: 4)],
+      layers.add(
+        MarkerLayer(
+          markers: [
+            Marker(
+              point: bluePos,
+              width: 40,
+              height: 40,
+              child: GestureDetector(
+                onTap: _onMyPosTap,
+                child: const Icon(
+                  Icons.my_location,
+                  color: Color(0xFF1565C0),
+                  size: 30,
+                  shadows: [Shadow(color: Colors.white, blurRadius: 4)],
+                ),
+              ),
             ),
-          ),
+          ],
         ),
-      ]));
+      );
     }
 
     return layers;
@@ -1078,7 +1261,9 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     final b = path.points[index].latLng;
     path.points.insert(
       index,
-      TrackPoint(LatLng((a.latitude + b.latitude) / 2, (a.longitude + b.longitude) / 2)),
+      TrackPoint(
+        LatLng((a.latitude + b.latitude) / 2, (a.longitude + b.longitude) / 2),
+      ),
     );
     _savePath(path);
   }
@@ -1087,7 +1272,9 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     final path = _editingPathCopy();
     if (path == null) return;
     if (path.points.length <= 2) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('至少保留 2 个顶点')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('至少保留 2 个顶点')));
       return;
     }
     path.points.removeAt(index);
@@ -1096,11 +1283,10 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
 
   Widget _buildModeBanner() {
     final msg = switch (_mode) {
-      _EditMode.addPlace => '输入搜索或点击地图选点',
       _EditMode.drawPath => '点击落点，点完成结束（${_draftPoints.length} 点）',
       _EditMode.editPath => '拖动顶点、点顶点删除、点空心圆插入',
       _EditMode.translatePath => '拖动整条路径',
-      _EditMode.none => '',
+      _EditMode.none || _EditMode.addPlace => '',
     };
     return Positioned(
       top: 8,
@@ -1159,7 +1345,11 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
                     key: const ValueKey('search-btn'),
                     onPressed: _doSearch,
                     icon: _searching
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         : const Icon(Icons.search),
                   ),
                   IconButton(
@@ -1176,15 +1366,24 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
             if (_searchError != null)
               Padding(
                 padding: const EdgeInsets.all(8),
-                child: Row(children: [
-                  Expanded(child: Text(_searchError!, style: const TextStyle(color: Colors.red, fontSize: 12))),
-                ]),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _searchError!,
+                        style: const TextStyle(color: Colors.red, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             if (_searchResults.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                child: Text('结果已用数字标注在地图上，点击数字或下方列表选点',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                child: Text(
+                  '结果已用数字标注在地图上，点击数字或下方列表选点',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
               ),
             for (final r in _searchResults)
               ListTile(
@@ -1194,10 +1393,18 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
                   backgroundColor: const Color(0xFFD84315),
                   child: Text(
                     '${_searchResults.indexOf(r) + 1}',
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-                title: Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                title: Text(
+                  r.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 onTap: () => _gotoResult(r),
               ),
           ],
@@ -1258,7 +1465,9 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
           IconButton(
             icon: const Icon(Icons.delete_outline),
             tooltip: '删除路径',
-            onPressed: editing == null ? null : () => _deletePathFromEdit(editing),
+            onPressed: editing == null
+                ? null
+                : () => _deletePathFromEdit(editing),
           ),
           IconButton(
             icon: const Icon(Icons.check),
@@ -1318,18 +1527,31 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     if (form == null) return;
     form.applyTo(p);
     p.updatedAt = DateTime.now();
-    await ref.read(personDataProvider(widget.personId).notifier).saveTripPath(key.$1, p);
+    await ref
+        .read(personDataProvider(widget.personId).notifier)
+        .saveTripPath(key.$1, p);
   }
 
   /// 路径编辑对话框内的删除：确认后删除并关闭对话框与编辑模式。
-  Future<void> _deletePathFromDialog(PathData p, String tripId, String personId) async {
+  Future<void> _deletePathFromDialog(
+    PathData p,
+    String tripId,
+    String personId,
+  ) async {
     final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
     if (!ok) return;
     if (p.mediaId != null) {
-      await deleteMediaIfUnused(ref, personId, p.mediaId!,
-          waypoints: _allWaypoints(personId), paths: _allPaths(personId));
+      await deleteMediaIfUnused(
+        ref,
+        personId,
+        p.mediaId!,
+        waypoints: _allWaypoints(personId),
+        paths: _allPaths(personId),
+      );
     }
-    await ref.read(personDataProvider(personId).notifier).deleteTripPath(tripId, p.id);
+    await ref
+        .read(personDataProvider(personId).notifier)
+        .deleteTripPath(tripId, p.id);
     if (context.mounted) Navigator.pop(context);
     if (mounted) {
       setState(() {
@@ -1345,10 +1567,17 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
     if (!ok) return;
     if (p.mediaId != null) {
-      await deleteMediaIfUnused(ref, widget.personId, p.mediaId!,
-          waypoints: _allWaypoints(widget.personId), paths: _allPaths(widget.personId));
+      await deleteMediaIfUnused(
+        ref,
+        widget.personId,
+        p.mediaId!,
+        waypoints: _allWaypoints(widget.personId),
+        paths: _allPaths(widget.personId),
+      );
     }
-    await ref.read(personDataProvider(widget.personId).notifier).deleteTripPath(key.$1, p.id);
+    await ref
+        .read(personDataProvider(widget.personId).notifier)
+        .deleteTripPath(key.$1, p.id);
     if (mounted) {
       setState(() {
         _mode = _EditMode.none;
@@ -1368,7 +1597,10 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
             children: [
               const Padding(
                 padding: EdgeInsets.all(12),
-                child: Text('图层', style: TextStyle(fontWeight: FontWeight.bold)),
+                child: Text(
+                  '图层',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
               ),
               SwitchListTile(
                 title: const Text('地点'),
@@ -1474,16 +1706,33 @@ class _SelectedCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(sel.label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    sel.label,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
-                IconButton(icon: const Icon(Icons.close), onPressed: onClose, visualDensity: VisualDensity.compact),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: onClose,
+                  visualDensity: VisualDensity.compact,
+                ),
               ],
             ),
-            if (sel.detail != null) Padding(padding: const EdgeInsets.only(bottom: 4), child: Text(sel.detail!)),
+            if (sel.detail != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(sel.detail!),
+              ),
             if (sel.time != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: Text(fmtDate(sel.time), style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                child: Text(
+                  fmtDate(sel.time),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
               ),
             ...sel.actions(),
           ],
@@ -1543,15 +1792,22 @@ class _RecordHudState extends State<_RecordHud> {
             Icon(
               Icons.circle,
               size: 10,
-              color: rec.status == RecordStatus.recording ? Colors.red : Colors.orange,
+              color: rec.status == RecordStatus.recording
+                  ? Colors.red
+                  : Colors.orange,
             ),
             const SizedBox(width: 6),
             Text(_fmtDuration(rec), style: const TextStyle(fontSize: 13)),
             const SizedBox(width: 10),
-            Text(formatMeters(rec.meters), style: const TextStyle(fontSize: 13)),
+            Text(
+              formatMeters(rec.meters),
+              style: const TextStyle(fontSize: 13),
+            ),
             IconButton(
               icon: Icon(
-                rec.status == RecordStatus.recording ? Icons.pause : Icons.play_arrow,
+                rec.status == RecordStatus.recording
+                    ? Icons.pause
+                    : Icons.play_arrow,
                 size: 20,
               ),
               visualDensity: VisualDensity.compact,

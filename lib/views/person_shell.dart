@@ -24,13 +24,18 @@ class PersonHome extends ConsumerStatefulWidget {
   ConsumerState<PersonHome> createState() => _PersonHomeState();
 }
 
-class _PersonHomeState extends ConsumerState<PersonHome> with SingleTickerProviderStateMixin {
+class _PersonHomeState extends ConsumerState<PersonHome>
+    with SingleTickerProviderStateMixin {
   late final TabController _tab;
 
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 3, vsync: this, initialIndex: widget.initialTab);
+    _tab = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: widget.initialTab,
+    );
     _tab.addListener(() => setState(() {}));
   }
 
@@ -58,7 +63,11 @@ class _PersonHomeState extends ConsumerState<PersonHome> with SingleTickerProvid
         me.bio = bio;
         await notifier.updatePerson(me);
       case 'delete':
-        final ok = await confirmDialog(context, '删除人物', '将连同备份一起物理删除该人物的全部数据，确定？');
+        final ok = await confirmDialog(
+          context,
+          '删除人物',
+          '将连同备份一起物理删除该人物的全部数据，确定？',
+        );
         if (ok && currentId != null) {
           await notifier.removePerson(currentId);
         }
@@ -76,25 +85,29 @@ class _PersonHomeState extends ConsumerState<PersonHome> with SingleTickerProvid
       final repo = await ref.read(personRepoProvider(personId).future);
       final person = await repo.loadPerson();
       final bytes = await exportPersonPack(repo);
-      final filename = '${person.name.isEmpty ? 'person' : person.name}-${DateTime.now().millisecondsSinceEpoch}.atrip';
+      final filename =
+          '${person.name.isEmpty ? 'person' : person.name}-${DateTime.now().millisecondsSinceEpoch}.atrip';
       if (Platform.isAndroid) {
         final path = await saveToDownloads(filename, bytes);
         if (!context.mounted) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('已导出到下载目录：$path')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('已导出到下载目录：$path')));
       } else {
         final loc = await getSaveLocation(suggestedName: filename);
         final path = loc?.path;
         if (path == null) return;
         await File(path).writeAsBytes(bytes, flush: true);
         if (!context.mounted) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('人物已导出')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('人物已导出')));
       }
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('导出失败：$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('导出失败：$e')));
     }
   }
 
@@ -109,7 +122,9 @@ class _PersonHomeState extends ConsumerState<PersonHome> with SingleTickerProvid
         throw const FormatException('无效的 .atrip 包');
       }
       final root = await ref.read(dataRootProvider.future);
-      final app = AppRepository(Directory('${root.path}${Platform.pathSeparator}people'));
+      final app = AppRepository(
+        Directory('${root.path}${Platform.pathSeparator}people'),
+      );
       var mode = 'new';
       if (await app.personDir(personId).exists()) {
         final m = await showDialog<String>(
@@ -118,9 +133,18 @@ class _PersonHomeState extends ConsumerState<PersonHome> with SingleTickerProvid
             title: const Text('人物已存在'),
             content: const Text('选择合并可保留两端数据，冲突以较新版本为准；覆盖会替换当前数据。'),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(c), child: const Text('取消')),
-              TextButton(onPressed: () => Navigator.pop(c, 'overwrite'), child: const Text('覆盖')),
-              FilledButton(onPressed: () => Navigator.pop(c, 'merge'), child: const Text('合并')),
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(c, 'overwrite'),
+                child: const Text('覆盖'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(c, 'merge'),
+                child: const Text('合并'),
+              ),
             ],
           ),
         );
@@ -131,18 +155,22 @@ class _PersonHomeState extends ConsumerState<PersonHome> with SingleTickerProvid
       await ref.read(peopleProvider.notifier).reload();
       ref.read(currentPersonIdProvider.notifier).select(id);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('人物已导入')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('人物已导入')));
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('导入失败：$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('导入失败：$e')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final people = ref.watch(peopleProvider).maybeWhen(data: (l) => l, orElse: () => <Person>[]);
+    final people = ref
+        .watch(peopleProvider)
+        .maybeWhen(data: (l) => l, orElse: () => <Person>[]);
     final currentId = ref.watch(currentPersonIdProvider);
     final current = people.where((p) => p.id == currentId).firstOrNull;
     return Scaffold(
@@ -153,11 +181,17 @@ class _PersonHomeState extends ConsumerState<PersonHome> with SingleTickerProvid
             for (final p in people)
               PopupMenuItem(
                 value: p.id,
-                child: Row(children: [
-                  Icon(Icons.person_outline, size: 18, color: p.id == currentId ? Colors.orange : null),
-                  const SizedBox(width: 8),
-                  Text(p.name),
-                ]),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.person_outline,
+                      size: 18,
+                      color: p.id == currentId ? Colors.orange : null,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(p.name),
+                  ],
+                ),
               ),
             const PopupMenuDivider(),
             const PopupMenuItem(value: 'add', child: Text('新增人物')),
@@ -165,14 +199,23 @@ class _PersonHomeState extends ConsumerState<PersonHome> with SingleTickerProvid
               const PopupMenuItem(value: 'edit', child: Text('编辑资料')),
               const PopupMenuItem(value: 'delete', child: Text('删除当前人物')),
               const PopupMenuDivider(),
-              const PopupMenuItem(value: 'export', child: Text('导出人物整包 (.atrip)')),
-              const PopupMenuItem(value: 'import', child: Text('导入人物整包 (.atrip)')),
+              const PopupMenuItem(
+                value: 'export',
+                child: Text('导出人物整包 (.atrip)'),
+              ),
+              const PopupMenuItem(
+                value: 'import',
+                child: Text('导入人物整包 (.atrip)'),
+              ),
             ],
           ],
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(current?.name ?? '选择人物', style: const TextStyle(fontSize: 18)),
+              Text(
+                current?.name ?? '选择人物',
+                style: const TextStyle(fontSize: 18),
+              ),
               const Icon(Icons.arrow_drop_down),
             ],
           ),
@@ -182,7 +225,9 @@ class _PersonHomeState extends ConsumerState<PersonHome> with SingleTickerProvid
             IconButton(
               icon: const Icon(Icons.layers_outlined),
               tooltip: '图层开关',
-              onPressed: () => ref.read(mapPageActionProvider(currentId!).notifier).requestShowLayers(),
+              onPressed: () => ref
+                  .read(mapPageActionProvider(currentId!).notifier)
+                  .requestShowLayers(),
             ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
@@ -203,16 +248,20 @@ class _PersonHomeState extends ConsumerState<PersonHome> with SingleTickerProvid
                       final r = await showPersonDialog(context);
                       if (r == null) return;
                       final (name, bio) = r;
-                      final person = await ref.read(peopleProvider.notifier).addPerson(name, bio: bio);
-                      ref.read(currentPersonIdProvider.notifier).select(person.id);
+                      final person = await ref
+                          .read(peopleProvider.notifier)
+                          .addPerson(name, bio: bio);
+                      ref
+                          .read(currentPersonIdProvider.notifier)
+                          .select(person.id);
                     },
                     child: const Text('新增人物'),
                   ),
                 ],
               ),
             )
-          : TabBarView(
-              controller: _tab,
+          : IndexedStack(
+              index: _tab.index,
               children: [
                 MapPage(personId: current.id),
                 TimelinePage(personId: current.id),
@@ -222,9 +271,21 @@ class _PersonHomeState extends ConsumerState<PersonHome> with SingleTickerProvid
       bottomNavigationBar: TabBar(
         controller: _tab,
         tabs: const [
-          Tab(key: ValueKey('tab-map'), icon: Icon(Icons.map_outlined), text: '地图'),
-          Tab(key: ValueKey('tab-timeline'), icon: Icon(Icons.timeline), text: '时间线'),
-          Tab(key: ValueKey('tab-stats'), icon: Icon(Icons.insights), text: '统计'),
+          Tab(
+            key: ValueKey('tab-map'),
+            icon: Icon(Icons.map_outlined),
+            text: '地图',
+          ),
+          Tab(
+            key: ValueKey('tab-timeline'),
+            icon: Icon(Icons.timeline),
+            text: '时间线',
+          ),
+          Tab(
+            key: ValueKey('tab-stats'),
+            icon: Icon(Icons.insights),
+            text: '统计',
+          ),
         ],
       ),
     );
@@ -238,11 +299,18 @@ class MapPageAction {
   final bool showLayers;
   final double zoom;
 
-  MapPageAction(this.requestId, [this.focus, this.showLayers = false, this.zoom = 12]);
+  MapPageAction(
+    this.requestId, [
+    this.focus,
+    this.showLayers = false,
+    this.zoom = 12,
+  ]);
 }
 
 final mapPageActionProvider =
-    NotifierProvider.family<MapPageActionNotifier, MapPageAction, String>(MapPageActionNotifier.new);
+    NotifierProvider.family<MapPageActionNotifier, MapPageAction, String>(
+      MapPageActionNotifier.new,
+    );
 
 class MapPageActionNotifier extends FamilyNotifier<MapPageAction, String> {
   @override
