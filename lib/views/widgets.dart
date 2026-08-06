@@ -3,17 +3,23 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 
 import '../providers.dart';
 
-/// 选择一张图片文件，返回 (扩展名, 字节)。
+/// 选择一张图片文件，返回 (扩展名, 字节)。Android 用系统相册，桌面用文件选择器。
 Future<(String, List<int>)?> pickImageBytes() async {
-  const group = XTypeGroup(
-    label: 'images',
-    extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'],
-  );
-  final file = await openFile(acceptedTypeGroups: const [group]);
+  XFile? file;
+  if (Platform.isAndroid) {
+    file = await ImagePicker().pickImage(source: ImageSource.gallery);
+  } else {
+    const group = XTypeGroup(
+      label: 'images',
+      extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'],
+    );
+    file = await openFile(acceptedTypeGroups: const [group]);
+  }
   if (file == null) return null;
   final ext = p.extension(file.path).replaceFirst('.', '').toLowerCase();
   final norm = ext == 'jpeg' ? 'jpg' : (ext.isEmpty ? 'jpg' : ext);

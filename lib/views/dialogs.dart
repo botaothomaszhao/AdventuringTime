@@ -888,3 +888,174 @@ Future<void> deleteMediaIfUnused(
     ref.invalidate(mediaListProvider(personId));
   }
 }
+
+/// 轨迹记录停止后的保存对话框：选/新建行程、轨迹名、说明、附图，存为该行程一条 trk。
+/// 返回是否保存成功。
+Future<bool> showRecordSaveDialog(
+  BuildContext context, {
+  required String personId,
+  required List<TrackPoint> points,
+}) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (_) => _RecordSaveDialog(personId: personId, points: points),
+  );
+  return ok ?? false;
+}
+
+class _RecordSaveDialog extends ConsumerStatefulWidget {
+  final String personId;
+  final List<TrackPoint> points;
+
+  const _RecordSaveDialog({required this.personId, required this.points});
+
+  @override
+  ConsumerState<_RecordSaveDialog> createState() => _RecordSaveDialogState();
+}
+
+class _RecordSaveDialogState extends ConsumerState<_RecordSaveDialog> {
+  String? _tripId;
+  late final TextEditingController _name;
+  late final TextEditingController _desc;
+  (String, List<int>)? _img;
+
+  @override
+  void initState() {
+    super.initState();
+    final t = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    _name = TextEditingController(
+        text: '轨迹 ${t.year}-${two(t.month)}-${two(t.day)} ${two(t.hour)}:${two(t.minute)}');
+    _desc = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _desc.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickTrip() async {
+    final trips = ref.read(personDataProvider(widget.personId)).valueOrNull?.trips ?? [];
+    final choice = await showDialog<Object>(
+      context: context,
+      builder: (c) => SimpleDialog(
+        title: const Text('选择行程'),
+        children: [
+          for (final t in trips)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(c, t.meta.id),
+              child: Text(t.meta.name),
+            ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(c, '__new__'),
+            child: const Text('新建行程'),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(c, null),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+    if (choice == '__new__') {
+      final form = await showTripDialog(context, personId: widget.personId);
+      if (form == null) return;
+      final now = DateTime.now();
+      final trip = Trip(
+        id: newId(),
+        name: form.name,
+        description: form.description,
+        cover: form.cover,
+        startDate: form.startDate,
+        endDate: form.endDate,
+        startEventId: form.startEventId,
+        endEventId: form.endEventId,
+        createdAt: now,
+        updatedAt: now,
+      );
+      form.applyTo(trip);
+      await ref.read(personDataProvider(widget.personId).notifier).createTrip(trip);
+      setState(() => _tripId = trip.id);
+    } else if (choice is String) {
+      setState(() => _tripId = choice);
+    }
+  }
+
+  Future<void> _save() async {
+    if (_tripId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请选择行程')));
+      return;
+    }
+    final notifier = ref.read(personDataProvider(widget.personId).notifier);
+    String? mediaId;
+    if (_img != null) {
+      mediaId = await notifier.addMedia(_img!.$1, _img!.$2);
+    }
+    final now = DateTime.now();
+    final path = PathData(
+      id: newId(),
+      name: _name.text.trim().isEmpty ? '轨迹' : _name.text.trim(),
+      desc: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
+      mediaId: mediaId,
+      isGps: true,
+      points: widget.points,
+      createdAt: now,
+      updatedAt: now,
+    );
+    await notifier.saveTripPath(_tripId!, path);
+    if (mounted) Navigator.pop(context, true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tripName = _tripId == null
+        ? '选择行程'
+        : (ref.read(personDataProvider(widget.personId)).valueOrNull
+                ?.tripById(_tripId!)?.meta.name ??
+            '选择行程');
+    return AlertDialog(
+      title: const Text('保存轨迹'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(tripName, style: const TextStyle(fontSize: 16)),
+              trailing: const Icon(Icons.arrow_drop_down),
+              onTap: _pickTrip,
+            ),
+            TextField(
+              controller: _name,
+              decoration: const InputDecoration(labelText: '轨迹名称'),
+            ),
+            TextField(
+              controller: _desc,
+              decoration: const InputDecoration(labelText: '说明（可选）'),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final img = await pickImageBytes();
+                    if (img != null) setState(() => _img = img);
+                  },
+                  icon: const Icon(Icons.photo_outlined, size: 18),
+                  label: Text(_img == null ? '附图' : '已选图片'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+        FilledButton(onPressed: _save, child: const Text('保存')),
+      ],
+    );
+  }
+}

@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../geo_search.dart';
 import '../providers.dart';
@@ -21,9 +25,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   static const _presets = {
     'Esri（墙内可用，推荐）':
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-    'OpenStreetMap':
+    'OpenStreetMap（需墙外）':
         'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    'Carto Voyager':
+    'Carto Voyager（墙内可用）':
         'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
   };
 
@@ -54,7 +58,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         children: [
           const Text('地图瓦片源', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
-          const Text('墙内网络建议使用 Esri（坐标与 OSM 一致）。自定义模板须为 WGS-84 Web Mercator。',
+          const Text('如遇部分地区放大后不可用，可尝试更换瓦片源。自定义模板须为 WGS-84 Web Mercator。',
               style: TextStyle(fontSize: 12, color: Colors.grey)),
           const SizedBox(height: 8),
           Wrap(
@@ -81,15 +85,36 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             ),
           ),
           const SizedBox(height: 8),
-          FilledButton(
-            onPressed: () async {
-              await setTileUrl(_tileUrl.text.trim());
-              setState(() => _saved = true);
-              if (!mounted) return;
-              ScaffoldMessenger.of(context)
-                  .showSnackBar(const SnackBar(content: Text('已保存（重启后生效）')));
-            },
-            child: const Text('保存瓦片源'),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton(
+                  onPressed: () async {
+                    await setTileUrl(_tileUrl.text.trim());
+                    ref.invalidate(tileUrlProvider);
+                    setState(() => _saved = true);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(const SnackBar(content: Text('已保存并生效')));
+                  },
+                  child: const Text('保存瓦片源'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: () async {
+                  final dir = await getApplicationSupportDirectory();
+                  final cache = Directory(p.join(dir.path, 'tiles'));
+                  if (await cache.exists()) {
+                    await cache.delete(recursive: true);
+                  }
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(const SnackBar(content: Text('瓦片缓存已清除')));
+                },
+                child: const Text('清除瓦片缓存'),
+              ),
+            ],
           ),
           const Divider(height: 32),
           const Text('地址搜索服务', style: TextStyle(fontWeight: FontWeight.bold)),

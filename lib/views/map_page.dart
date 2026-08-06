@@ -1,14 +1,17 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../geo_search.dart';
 import '../lifecycle.dart';
+import '../location_service.dart';
 import '../models.dart';
 import '../providers.dart';
 import '../tile_cache.dart';
@@ -57,6 +60,8 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   String? _searchError;  final Map<String, List<LatLng>> _translateOrig = {};
   String? _pendingTripId; // 添加地点模式的目标行程（从行程弹窗进入时预选）
   DiskCachedTileProvider? _tileProvider;
+  LatLng? _myPos; // 实时定位点（仅 Android）
+  StreamSubscription<Position>? _posSub;
 
   static const _palette = [
     Color(0xFF2E7D32), Color(0xFFC62828), Color(0xFF1565C0),
@@ -70,11 +75,73 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   void initState() {
     super.initState();
     _initTileProvider();
+    if (Platform.isAndroid) _initMyLocation();
   }
 
   @override
   void dispose() {
+    _posSub?.cancel();
     super.dispose();
+  }
+
+  /// 蓝点：请求定位权限并订阅实时位置。
+  Future<void> _initMyLocation() async {
+    if (!await LocationService.ensureLocationPermission()) return;
+    if (!mounted) return;
+    _posSub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+      ),
+    ).listen((p) {
+      if (mounted) setState(() => _myPos = LatLng(p.latitude, p.longitude));
+    });
+  }
+
+  /// 添加地点模式下点击蓝点：在当前位置添加地点。
+  void _onMyPosTap() {
+    if (_mode != _EditMode.addPlace || _myPos == null) return;
+    _addWaypointAt(_myPos!);
+  }
+
+  /// 相机回到我的位置并把地图方向复位到正北。
+  void _centerOnMyPos() {
+    final p = _myPos;
+    if (p == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('定位不可用，请检查定位权限与开关')));
+      return;
+    }
+    _mapCtrl.move(p, _mapCtrl.camera.zoom);
+    _mapCtrl.rotate(0);
+  }
+
+  /// 左上角记录按钮：空闲时开始记录，记录中/暂停时停止并保存。
+  Future<void> _onRecordButton(RecordState rec) async {
+    if (rec.status == RecordStatus.idle) {
+      if (!await LocationService.ensureLocationPermission()) {
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text('未获得定位权限，无法记录')));
+        }
+        return;
+      }
+      await ref.read(recordingProvider.notifier).start();
+    } else {
+      final pts = await ref.read(recordingProvider.notifier).stop();
+      if (!mounted) return;
+      if (pts.isEmpty) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('没有记录到有效定位点')));
+        return;
+      }
+      final ok = await showRecordSaveDialog(
+          context, personId: widget.personId, points: pts);
+      if (ok && mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('轨迹已保存')));
+      }
+    }
   }
 
   /// 点击位置与线段 a→b 的屏幕像素距离。
@@ -662,6 +729,8 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
 
     final (people, containers) = _peopleData();
     final tileUrl = ref.watch(tileUrlProvider).maybeWhen(data: (u) => u, orElse: () => '');
+    // 记录会话状态（仅 Android，Windows 不 watch 避免调用原生通道）
+    final rec = Platform.isAndroid ? ref.watch(recordingProvider) : null;
     // 绘制模式下保留拖动/缩放，但关闭双击缩放（双击用于结束绘制）；整体平移禁用缩放防误触
     var flags = InteractiveFlag.all;
     if (_mode == _EditMode.translatePath) {
@@ -686,7 +755,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
               userAgentPackageName: 'dev.adventuring.time',
               tileProvider: _tileProvider ?? CancellableNetworkTileProvider(),
             ),
-            ..._buildLayers(people, containers),
+            ..._buildLayers(people, containers, rec),
             // 绘制模式预览线（必须在 FlutterMap 内，依赖 MapCamera；空点不渲染）
             if (_mode == _EditMode.drawPath && _draftPoints.isNotEmpty)
               PolylineLayer(
@@ -718,6 +787,47 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
         if (_mode != _EditMode.none) _buildModeBanner(),
         _buildSearchBar(),
         Positioned(left: 8, bottom: 8, child: _buildToolbar()),
+        if (Platform.isAndroid && _mode == _EditMode.none)
+          Positioned(
+            left: 8,
+            top: 8,
+            child: FloatingActionButton.small(
+              heroTag: 'record',
+              tooltip: rec!.status == RecordStatus.idle ? '开始记录轨迹' : '停止记录并保存',
+              onPressed: () => _onRecordButton(rec),
+              child: Icon(
+                rec.status == RecordStatus.idle ? Icons.fiber_manual_record : Icons.stop,
+                color: rec.status == RecordStatus.idle ? Colors.red : null,
+              ),
+            ),
+          ),
+        if (Platform.isAndroid && _mode == _EditMode.none && rec != null && rec.status != RecordStatus.idle)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: _RecordHud(
+              rec: rec,
+              onPauseResume: () {
+                final n = ref.read(recordingProvider.notifier);
+                if (rec.status == RecordStatus.recording) {
+                  n.pause();
+                } else {
+                  n.resume();
+                }
+              },
+            ),
+          ),
+        if (Platform.isAndroid && _mode == _EditMode.none)
+          Positioned(
+            right: 8,
+            bottom: 8,
+            child: FloatingActionButton.small(
+              heroTag: 'locate',
+              tooltip: '回到我的位置，方向复位正北',
+              onPressed: _centerOnMyPos,
+              child: const Icon(Icons.my_location),
+            ),
+          ),
         if (_selected != null)
           Positioned(
             left: 8,
@@ -729,9 +839,9 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     );
   }
 
-  List<Widget> _buildLayers(List<Person> people, List<(String?, GpxFile)> containers) {
-    final layers = <Widget>[];
-    var colorIdx = 0;
+  List<Widget> _buildLayers(
+      List<Person> people, List<(String?, GpxFile)> containers, RecordState? rec) {
+    final layers = <Widget>[];    var colorIdx = 0;
     final tripColors = <String, int>{};
     for (final p in people) {
       final toggles = _togglesOf(p.id);
@@ -870,6 +980,37 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
         ));
       }
       layers.add(MarkerLayer(markers: numMarkers));
+    }
+
+    // 记录中：本次会话轨迹实时预览
+    if (rec != null && rec.points.length >= 2) {
+      layers.add(PolylineLayer(polylines: [
+        Polyline(
+          points: [for (final t in rec.points) t.latLng],
+          strokeWidth: 4,
+          color: const Color(0xFFFF5722),
+        ),
+      ]));
+    }
+
+    // 蓝点：我的实时位置（仅 Android）
+    if (Platform.isAndroid && _myPos != null) {
+      layers.add(MarkerLayer(markers: [
+        Marker(
+          point: _myPos!,
+          width: 40,
+          height: 40,
+          child: GestureDetector(
+            onTap: _onMyPosTap,
+            child: const Icon(
+              Icons.my_location,
+              color: Color(0xFF1565C0),
+              size: 30,
+              shadows: [Shadow(color: Colors.white, blurRadius: 4)],
+            ),
+          ),
+        ),
+      ]));
     }
 
     return layers;
@@ -1297,6 +1438,73 @@ class _SelectedCard extends StatelessWidget {
                 child: Text(fmtDate(sel.time), style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
               ),
             ...sel.actions(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 记录中的右上角信息条：状态、时长、里程、暂停/继续。
+class _RecordHud extends StatefulWidget {
+  final RecordState rec;
+  final VoidCallback onPauseResume;
+
+  const _RecordHud({required this.rec, required this.onPauseResume});
+
+  @override
+  State<_RecordHud> createState() => _RecordHudState();
+}
+
+class _RecordHudState extends State<_RecordHud> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _fmtDuration(DateTime? start) {
+    final d = start == null ? Duration.zero : DateTime.now().difference(start);
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(d.inHours)}:${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rec = widget.rec;
+    return Material(
+      elevation: 3,
+      borderRadius: BorderRadius.circular(20),
+      child: Padding(
+        padding: const EdgeInsets.only(left: 12, right: 4, top: 4, bottom: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.circle,
+              size: 10,
+              color: rec.status == RecordStatus.recording ? Colors.red : Colors.orange,
+            ),
+            const SizedBox(width: 6),
+            Text(_fmtDuration(rec.startedAt), style: const TextStyle(fontSize: 13)),
+            const SizedBox(width: 10),
+            Text(formatMeters(rec.meters), style: const TextStyle(fontSize: 13)),
+            IconButton(
+              icon: Icon(
+                rec.status == RecordStatus.recording ? Icons.pause : Icons.play_arrow,
+                size: 20,
+              ),
+              visualDensity: VisualDensity.compact,
+              onPressed: widget.onPauseResume,
+            ),
           ],
         ),
       ),
