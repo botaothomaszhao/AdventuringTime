@@ -11,6 +11,8 @@ import 'geo_search.dart';
 import 'models.dart';
 import 'providers.dart';
 import 'storage.dart';
+import 'views/dialogs.dart';
+import 'views/person_shell.dart';
 
 /// MCP 测试入口：
 /// 1. 启用 flutter driver 扩展（支持 tap/输入等标准命令）
@@ -175,14 +177,107 @@ Future<String> _handleCommand(String? message) async {
         double.parse(params['lon']!),
       );
       return 'addr:$addr';
+    case 'addWaypointDialog':
+      // 与地图页 _addWaypointAt 相同的完整流程：对话框 → 按类型分发保存
+      final form = await showWaypointDialog(
+        navKey.currentContext!,
+        personId: personId,
+        initialPos: LatLng(double.parse(params['lat']!), double.parse(params['lon']!)),
+      );
+      if (form == null) return 'cancelled';
+      final now = DateTime.now();
+      final w = Waypoint(
+        id: newId(),
+        name: form.name,
+        desc: form.desc,
+        latLng: LatLng(double.parse(params['lat']!), double.parse(params['lon']!)),
+        time: form.time,
+        timePrecision: form.precision,
+        isEvent: form.isEvent,
+        fromName: form.fromName,
+        fromLatLng: form.fromLatLng,
+        mediaId: form.mediaId,
+        createdAt: now,
+        updatedAt: now,
+      );
+      form.applyTo(w);
+      if (form.isEvent) {
+        await notifier.saveLifeWaypoint(w);
+      } else {
+        await notifier.saveTripWaypoint(form.tripId!, w);
+      }
+      return 'saved:${w.id}|isEvent=${form.isEvent}|trip=${form.tripId ?? ''}';
+    case 'saveTripWaypoint':
+      // 直接给指定行程添加地点（flag 标记验证用）
+      final now = DateTime.now();
+      final w = Waypoint(
+        id: newId(),
+        name: params['name'] ?? '',
+        latLng: LatLng(double.parse(params['lat']!), double.parse(params['lon']!)),
+        time: DateTime.parse(params['time'] ?? DateTime.now().toIso8601String()),
+        createdAt: now,
+        updatedAt: now,
+      );
+      await notifier.saveTripWaypoint(params['tripId']!, w);
+      return 'ok:${w.id}';
     case 'nav':
       // 直接导航（绕开 driver tap 的 Windows idle 问题）
       navKey.currentState?.pushNamed(params['route'] ?? '/');
       return 'ok';
+    case 'switchTab':
+      // 切换底部 Tab（0=地图 1=时间线 2=统计）
+      final controller = DefaultTabController.of(navKey.currentContext!);
+      controller.animateTo(int.parse(params['index'] ?? '0'));
+      return 'ok';
+    case 'debugAnchor':
+      // 检查行程 flag 锚点状态（验证渲染用）
+      final d = notifier.d;
+      final allLife = [
+        for (final w in d.life.events) w,
+        for (final x in d.trips) ...x.gpx.events,
+      ];
+      return [for (final t in d.trips) {
+            'name': t.meta.name,
+            'paths': t.gpx.paths.length,
+            'wps': t.gpx.waypoints.length,
+            'startRef': t.meta.startEventId,
+            'startRefInLife': t.meta.startEventId != null &&
+                allLife.any((w) => w.id == t.meta.startEventId),
+          }]
+          .map((m) => jsonEncode(m))
+          .join(' | ');
+    case 'focusMap':
+      // 地图定位（验证 marker 渲染用），zoom 可选
+      appContainer.read(mapPageActionProvider(personId).notifier).focusOn(
+            LatLng(double.parse(params['lat']!), double.parse(params['lon']!)),
+            zoom: double.parse(params['zoom'] ?? '12'),
+          );
+      return 'ok';
     case 'uiState':
-      // 返回 UI 关键状态（当前焦点）
+      // 返回 UI 关键状态（焦点、对话框标题、SnackBar 文本）
+      String? snackText;
+      String? dialogTitle;
+      void walk(Element e) {
+        if (snackText != null && dialogTitle != null) return;
+        if (e.widget is SnackBar) {
+          final c = (e.widget as SnackBar).content;
+          if (c is Text && snackText == null) snackText = c.data;
+        } else if (e.widget is AlertDialog) {
+          final t = (e.widget as AlertDialog).title;
+          if (t is Text && dialogTitle == null) dialogTitle = t.data;
+        }
+        e.visitChildren(walk);
+      }
+
+      final root = WidgetsBinding.instance.rootElement;
+      if (root != null) walk(root);
+      // 中文文本输出码点（ASCII 安全，避免终端编码干扰调试）
+      String cp(String? s) =>
+          s == null ? '' : [for (final c in s.codeUnits) c.toRadixString(16)].join('-');
       return jsonEncode({
         'focus': FocusManager.instance.primaryFocus?.context?.widget.runtimeType.toString(),
+        'snack': cp(snackText),
+        'dialog': cp(dialogTitle),
       });
     default:
       return 'unknown:$command';

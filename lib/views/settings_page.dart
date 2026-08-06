@@ -130,7 +130,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           const Text('关于', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           const Text('探索的时光 Adventuring Time v0.1\n'
-              '纯本地足迹地图：轨迹、生活事件、行程合集。\n'
+              '纯本地足迹地图：轨迹、长期地点、行程合集。\n'
               '数据格式：GPX + atrip 扩展。'),
           const SizedBox(height: 8),
           Text('默认数据位置：%USERPROFILE%\\AdventuringTime\\data',

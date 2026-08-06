@@ -35,7 +35,7 @@ class StatsPage extends ConsumerWidget {
                     const SizedBox(height: 12),
                     _row('记录里程', formatMeters(stats.recordedMeters)),
                     _row('推算里程', formatMeters(stats.estimatedMeters)),
-                    _row('生活事件', '${stats.eventCount} 个'),
+                    _row('长期地点', '${stats.eventCount} 个'),
                     _row('行程', '${stats.tripCount} 个'),
                     _row('照片', '${stats.mediaCount} 张'),
                   ],

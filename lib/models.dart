@@ -127,14 +127,14 @@ class Trip {
       v is String && v.isNotEmpty ? DateTime.tryParse(v) : null;
 }
 
-/// 地点 waypoint。isEvent=true 时即"生活事件"。
+/// 地点 waypoint。isEvent=true 时为长期地点（人生轨迹节点，星标）。
 /// 归属容器：life.gpx（未归入行程）或某 trip.gpx（已归入行程），单一存储。
 class Waypoint {
   final String id;
   String name;
   String? desc;
   LatLng latLng;
-  DateTime? time; // 标志时间点（事件有；普通地点可无）
+  DateTime? time; // 到达时间（必填：所有地点都有）
   TimePrecision? timePrecision;
   bool isEvent; // atrip:eventType=life
   String? fromName;

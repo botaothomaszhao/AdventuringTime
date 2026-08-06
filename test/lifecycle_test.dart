@@ -110,6 +110,66 @@ void main() {
       expect(r.segs.firstWhere((s) => !s.recorded).from, const LatLng(0, 1));
       expect(r.segs.firstWhere((s) => !s.recorded).to, const LatLng(0, 2));
     });
+
+    test('行程无路径仅地点：按到达时间生成连线', () {
+      final t = TripBundle(
+        meta: Trip(
+          id: 't',
+          name: 't',
+          startDate: DateTime.utc(2005, 1, 1),
+          createdAt: DateTime.utc(2005, 1, 1),
+          updatedAt: DateTime.utc(2005, 1, 1),
+        ),
+        gpx: GpxFile(waypoints: [
+          Waypoint(
+            id: 'w1',
+            name: 'w1',
+            latLng: const LatLng(0, 0),
+            time: DateTime.utc(2005, 1, 2),
+            createdAt: DateTime.utc(2005, 1, 1),
+            updatedAt: DateTime.utc(2005, 1, 1),
+          ),
+          Waypoint(
+            id: 'w2',
+            name: 'w2',
+            latLng: const LatLng(0, 1),
+            time: DateTime.utc(2005, 1, 3),
+            createdAt: DateTime.utc(2005, 1, 1),
+            updatedAt: DateTime.utc(2005, 1, 1),
+          ),
+        ]),
+      );
+      final e1 = ev('e1', DateTime.utc(2000, 1, 1), const LatLng(3, 3));
+      final e2 = ev('e2', DateTime.utc(2010, 1, 1), const LatLng(4, 4));
+      final r = buildLifePath([e1, e2], [t]);
+      // 3 段虚线：e1→w1、w2→e2（邻接段）+ w1→w2（行程内部段）
+      expect(r.segs, hasLength(3));
+      expect(r.segs.every((s) => !s.recorded), true);
+      expect(r.segs.last.from, const LatLng(0, 0));
+      expect(r.segs.last.to, const LatLng(0, 1));
+    });
+
+    test('行程无路径无地点：仅起点终点长期地点连成一段', () {
+      final s = ev('s', DateTime.utc(2000, 1, 1), const LatLng(0, 0));
+      final e = ev('e', DateTime.utc(2010, 1, 1), const LatLng(0, 1));
+      final t = TripBundle(
+        meta: Trip(
+          id: 't',
+          name: 't',
+          startDate: DateTime.utc(2005, 1, 1),
+          startEventId: s.id,
+          endEventId: e.id,
+          createdAt: DateTime.utc(2005, 1, 1),
+          updatedAt: DateTime.utc(2005, 1, 1),
+        ),
+        gpx: GpxFile(),
+      );
+      final r = buildLifePath([s, e], [t]);
+      // 起终点长期地点已在相邻项中，仅行程内部生成一段 s→e
+      expect(r.segs, hasLength(1));
+      expect(r.segs.single.from, const LatLng(0, 0));
+      expect(r.segs.single.to, const LatLng(0, 1));
+    });
   });
 
   group('统计', () {

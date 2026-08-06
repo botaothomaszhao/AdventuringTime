@@ -16,8 +16,8 @@ import 'dialogs.dart';
 import 'person_shell.dart';
 import 'widgets.dart';
 
-/// 地图页：图层（地点/事件/路径/人生轨迹线）、点击弹卡、增删改、
-/// 手绘路径与顶点编辑、整体平移、地址搜索。
+/// 地图页：图层（地点/长期地点/路径/人生轨迹线）、点击弹卡、增删改、
+/// 手绘路径与顶点编辑、整体平移、地址搜索、行程标记。
 class MapPage extends ConsumerStatefulWidget {
   final String personId;
 
@@ -55,6 +55,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   String _searchQ = '';
   bool _searching = false;
   String? _searchError;  final Map<String, List<LatLng>> _translateOrig = {};
+  Offset? _pendingTapPos; // 绘制模式的单击落点位置（抬起时加点，避免拖动地图误加）
   DiskCachedTileProvider? _tileProvider;
   final _polylineHit = ValueNotifier<LayerHitResult<String>?>(null);
 
@@ -193,7 +194,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
               leading: const Icon(Icons.edit_outlined),
               title: const Text('编辑'),
               onTap: () async {
-                final form = await showWaypointDialog(context, personId: personId, existing: w);
+                final form = await showWaypointDialog(context, personId: personId, existing: w, tripId: tripId);
                 if (form == null) return;
                 form.applyTo(w);
                 w.updatedAt = DateTime.now();
@@ -210,7 +211,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
               leading: const Icon(Icons.delete_outline),
               title: const Text('删除'),
               onTap: () async {
-                final ok = await confirmDialog(context, '删除', '确定删除该${w.isEvent ? '事件' : '地点'}？');
+                final ok = await confirmDialog(context, '删除', '确定删除该${w.isEvent ? '长期地点' : '地点'}？');
                 if (!ok) return;
                 if (w.mediaId != null) {
                   await deleteMediaIfUnused(ref, personId, w.mediaId!,
@@ -280,6 +281,68 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
         },
       );
     });
+  }
+
+  void _selectTrip(TripBundle t, String personId) {
+    final stats = tripStats(t);
+    setState(() {
+      _selected = _Selected(
+        label: t.meta.name.isEmpty ? '（未命名行程）' : t.meta.name,
+        detail: '${fmtDate(t.meta.startDate)} 至 ${fmtDate(t.meta.endDate)} · ${stats.placeCount} 个地点 · ${stats.pathCount} 条路径',
+        time: t.meta.startDate,
+        actions: () {
+          return [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('编辑行程'),
+              onTap: () async {
+                final form = await showTripDialog(context, personId: personId, existing: t.meta);
+                if (form == null) return;
+                form.applyTo(t.meta);
+                t.meta.updatedAt = DateTime.now();
+                await ref.read(personDataProvider(personId).notifier).saveTripMeta(t.meta);
+                _closeSheet();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.open_in_new),
+              title: const Text('查看详情'),
+              onTap: () {
+                _closeSheet();
+                Navigator.pushNamed(context, '/person/$personId/trip/${t.meta.id}');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('删除'),
+              onTap: () async {
+                final ok = await confirmDialog(context, '删除行程', '确定删除该行程（含其中地点与路径）？');
+                if (!ok) return;
+                await ref.read(personDataProvider(personId).notifier).deleteTrip(t.meta.id);
+                _closeSheet();
+              },
+            ),
+          ];
+        },
+      );
+    });
+  }
+
+  /// 行程在地图上的锚点：路径首点 → 最早地点 → 起点长期地点。
+  LatLng? _tripAnchor(TripBundle t, List<Waypoint> allLife) {
+    final g = t.gpx;
+    for (final p in g.paths) {
+      if (p.points.isNotEmpty) return p.points.first.latLng;
+    }
+    if (g.waypoints.isNotEmpty) {
+      final wps = [...g.waypoints]..sort((a, b) =>
+          (a.sortTime ?? a.createdAt).compareTo(b.sortTime ?? b.createdAt));
+      return wps.first.latLng;
+    }
+    for (final e in allLife) {
+      if (e.id == t.meta.startEventId) return e.latLng;
+    }
+    return null;
   }
 
   Future<Trip?> _pickTrip(List<TripBundle> trips) async {
@@ -353,7 +416,12 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
       updatedAt: now,
     );
     form.applyTo(w);
-    await ref.read(personDataProvider(widget.personId).notifier).saveLifeWaypoint(w);
+    final notifier = ref.read(personDataProvider(widget.personId).notifier);
+    if (form.isEvent) {
+      await notifier.saveLifeWaypoint(w);
+    } else {
+      await notifier.saveTripWaypoint(form.tripId!, w);
+    }
     if (mounted) {
       setState(() {
         _mode = _EditMode.none;
@@ -522,7 +590,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     ref.listen(mapPageActionProvider(widget.personId), (prev, next) {
       if (prev == null) return;
       if (next.requestId > prev.requestId && next.focus != null) {
-        _mapCtrl.move(next.focus!, 12);
+        _mapCtrl.move(next.focus!, next.zoom);
       } else if (next.requestId > prev.requestId && next.showLayers) {
         _showLayerPanel();
       }
@@ -530,9 +598,13 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
 
     final (people, containers) = _peopleData();
     final tileUrl = ref.watch(tileUrlProvider).maybeWhen(data: (u) => u, orElse: () => '');
-    final interaction = _mode == _EditMode.translatePath || _mode == _EditMode.drawPath
-        ? InteractiveFlag.drag
-        : InteractiveFlag.all;
+    // 绘制模式下保留拖动/缩放，但关闭双击缩放（双击用于结束绘制）；整体平移禁用缩放防误触
+    var flags = InteractiveFlag.all;
+    if (_mode == _EditMode.translatePath) {
+      flags = InteractiveFlag.drag;
+    } else if (_mode == _EditMode.drawPath) {
+      flags = InteractiveFlag.all & ~InteractiveFlag.doubleTapZoom;
+    }
 
     return Stack(
       children: [
@@ -541,7 +613,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
           options: MapOptions(
             initialCenter: const LatLng(35.0, 105.0),
             initialZoom: 4,
-            interactionOptions: InteractionOptions(flags: interaction),
+            interactionOptions: InteractionOptions(flags: flags),
             onTap: _onTap,
           ),
           children: [
@@ -556,8 +628,9 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
         if (_mode == _EditMode.drawPath)
           Positioned.fill(
             child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapDown: (d) => _addDraftFromScreen(d.localPosition),
+              behavior: HitTestBehavior.translucent,
+              onTapDown: (d) => _pendingTapPos = d.localPosition,
+              onTapUp: (_) => _addDraftFromScreen(_pendingTapPos!),
               onDoubleTap: () => _finishDrawPath(),
             ),
           ),
@@ -664,6 +737,35 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
             hitNotifier: _polylineHit,
             minimumHitbox: 10,
           ));
+        }
+
+        // 行程实体标记（锚点在路径首点/最早地点/起点长期地点），点击编辑行程
+        if (tripId != null && toggles.paths) {
+          final t = d.tripById(tripId);
+          final allLife = [
+            for (final w in d.life.events) w,
+            for (final x in d.trips) ...x.gpx.events,
+          ];
+          final anchor = t == null ? null : _tripAnchor(t, allLife);
+          if (t != null && anchor != null) {
+            personLayers.add(MarkerLayer(markers: [
+              Marker(
+                point: anchor,
+                width: 30,
+                height: 30,
+                alignment: Alignment.topCenter,
+                child: GestureDetector(
+                  onTap: () => _selectTrip(t, p.id),
+                  child: Icon(
+                    Icons.flag,
+                    color: color,
+                    size: 26,
+                    shadows: const [Shadow(color: Colors.white, blurRadius: 3)],
+                  ),
+                ),
+              ),
+            ]));
+          }
         }
       }
 
@@ -1031,7 +1133,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
                 },
               ),
               SwitchListTile(
-                title: const Text('事件'),
+                title: const Text('长期地点'),
                 value: current.events,
                 onChanged: (v) {
                   current.events = v;

@@ -49,8 +49,9 @@ class LifePathResult {
 /// 单条路径（trk/rte）的取点序列，用于行程内部连接。
 List<LatLng> _pathPoints(PathData p) => [for (final pt in p.points) pt.latLng];
 
-/// 构建人生轨迹线：全部事件 + 全部行程按时间排序，相邻项连接，
+/// 构建人生轨迹线：全部长期地点 + 全部行程按时间排序，相邻项连接，
 /// 实线=实际记录段，虚线=推算直线段。统计实/虚里程。
+/// 行程若无路径但只有地点（含起终点长期地点引用）时，也按时间顺序生成连线。
 LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
   final segs = <LifeSeg>[];
 
@@ -59,7 +60,21 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
     segs.add(LifeSeg(a, b, rec));
   }
 
-  // 排序项：事件或行程
+  // 按 id 查找长期地点（事件列表 + 各行程内），用于起终点引用
+  Waypoint? findWp(String? id) {
+    if (id == null) return null;
+    for (final e in events) {
+      if (e.id == id) return e;
+    }
+    for (final t in trips) {
+      for (final w in t.gpx.waypoints) {
+        if (w.id == id) return w;
+      }
+    }
+    return null;
+  }
+
+  // 排序项：长期地点或行程
   final items = <_LifeItem>[];
   for (final e in events) {
     items.add(_LifeItem(
@@ -89,11 +104,43 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
       }
       prevEnd = pp.last;
     }
+    LatLng? first = itemSegs.isEmpty ? null : itemSegs.first.from;
+    LatLng? last = itemSegs.isEmpty ? null : itemSegs.last.to;
+    // 无路径：仅有地点时按到达时间连线
+    if (first == null) {
+      final wps = [...t.gpx.waypoints]..sort((a, b) {
+          final c = (a.sortTime ?? a.createdAt).compareTo(b.sortTime ?? b.createdAt);
+          return c != 0 ? c : a.createdAt.compareTo(b.createdAt);
+        });
+      LatLng? prev;
+      for (final w in wps) {
+        if (prev != null) itemSegs.add(LifeSeg(prev, w.latLng, false));
+        prev = w.latLng;
+      }
+      first = wps.isEmpty ? null : wps.first.latLng;
+      last = wps.isEmpty ? null : wps.last.latLng;
+    }
+    // 仍无实体：用选择的起终点长期地点连成一段
+    if (first == null) {
+      final s = findWp(t.meta.startEventId);
+      final e = findWp(t.meta.endEventId);
+      if (s != null && e != null) {
+        itemSegs.add(LifeSeg(s.latLng, e.latLng, false));
+        first = s.latLng;
+        last = e.latLng;
+      } else if (s != null) {
+        first = s.latLng;
+        last = s.latLng;
+      } else if (e != null) {
+        first = e.latLng;
+        last = e.latLng;
+      }
+    }
     items.add(_LifeItem(
       time: t.meta.startDate ?? t.meta.createdAt,
       created: t.meta.createdAt,
-      first: itemSegs.isEmpty ? null : itemSegs.first.from,
-      last: itemSegs.isEmpty ? null : itemSegs.last.to,
+      first: first,
+      last: last,
       segs: itemSegs,
     ));
   }

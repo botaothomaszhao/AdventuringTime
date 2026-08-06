@@ -141,9 +141,9 @@ class _PersonHomeState extends ConsumerState<PersonHome> with SingleTickerProvid
       bottomNavigationBar: TabBar(
         controller: _tab,
         tabs: const [
-          Tab(icon: Icon(Icons.map_outlined), text: '地图'),
-          Tab(icon: Icon(Icons.timeline), text: '时间线'),
-          Tab(icon: Icon(Icons.insights), text: '统计'),
+          Tab(key: ValueKey('tab-map'), icon: Icon(Icons.map_outlined), text: '地图'),
+          Tab(key: ValueKey('tab-timeline'), icon: Icon(Icons.timeline), text: '时间线'),
+          Tab(key: ValueKey('tab-stats'), icon: Icon(Icons.insights), text: '统计'),
         ],
       ),
     );
@@ -155,8 +155,9 @@ class MapPageAction {
   final int requestId;
   final LatLng? focus;
   final bool showLayers;
+  final double zoom;
 
-  MapPageAction(this.requestId, [this.focus, this.showLayers = false]);
+  MapPageAction(this.requestId, [this.focus, this.showLayers = false, this.zoom = 12]);
 }
 
 final mapPageActionProvider =
@@ -166,8 +167,8 @@ class MapPageActionNotifier extends FamilyNotifier<MapPageAction, String> {
   @override
   MapPageAction build(String personId) => MapPageAction(0);
 
-  void focusOn(LatLng latlng) {
-    state = MapPageAction(state.requestId + 1, latlng);
+  void focusOn(LatLng latlng, {double zoom = 12}) {
+    state = MapPageAction(state.requestId + 1, latlng, false, zoom);
   }
 
   void requestShowLayers() {

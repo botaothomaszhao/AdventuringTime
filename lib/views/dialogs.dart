@@ -8,9 +8,9 @@ import '../models.dart';
 import '../providers.dart';
 import 'widgets.dart';
 
-/// 编辑对话框集合：地点/事件、路径、行程、人。
+/// 编辑对话框集合：地点/长期地点、路径、行程、人。
 
-/// 地点/事件表单结果。
+/// 地点/长期地点表单结果。
 class WaypointForm {
   final String name;
   final String? desc;
@@ -20,6 +20,7 @@ class WaypointForm {
   final LatLng? fromLatLng;
   final String? mediaId;
   final bool isEvent;
+  final String? tripId; // 普通地点的所属行程（长期地点为 null）
 
   const WaypointForm({
     required this.name,
@@ -30,6 +31,7 @@ class WaypointForm {
     this.fromLatLng,
     this.mediaId,
     this.isEvent = false,
+    this.tripId,
   });
 
   /// 应用到现有 waypoint（写操作前调用，维护 updatedAt）。
@@ -51,6 +53,7 @@ Future<WaypointForm?> showWaypointDialog(
   Waypoint? existing,
   LatLng? initialPos,
   String? defaultName,
+  String? tripId,
 }) {
   return showDialog<WaypointForm>(
     context: context,
@@ -59,6 +62,7 @@ Future<WaypointForm?> showWaypointDialog(
       existing: existing,
       initialPos: initialPos,
       defaultName: defaultName,
+      tripId: tripId,
     ),
   );
 }
@@ -68,8 +72,9 @@ class _WaypointDialog extends ConsumerStatefulWidget {
   final Waypoint? existing;
   final LatLng? initialPos;
   final String? defaultName;
+  final String? tripId; // 编辑时当前所属行程（新建为 null）
 
-  const _WaypointDialog({required this.personId, this.existing, this.initialPos, this.defaultName});
+  const _WaypointDialog({required this.personId, this.existing, this.initialPos, this.defaultName, this.tripId});
 
   @override
   ConsumerState<_WaypointDialog> createState() => _WaypointDialogState();
@@ -84,6 +89,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
   LatLng? _fromLatLng;
   String? _mediaId;
   late bool _isEvent;
+  String? _tripId;
 
   @override
   void initState() {
@@ -97,6 +103,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
     _fromLatLng = e?.fromLatLng;
     _mediaId = e?.mediaId;
     _isEvent = e?.isEvent ?? false;
+    _tripId = e == null ? null : widget.tripId;
     if (widget.existing == null && _name.text.isEmpty) {
       _reverseFill();
     }
@@ -137,6 +144,29 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
     });
   }
 
+  /// 普通地点必选的所属行程下拉（新建长期地点不显示）。
+  Widget _tripPicker() {
+    final trips = ref
+        .watch(personDataProvider(widget.personId))
+        .maybeWhen(data: (d) => d.trips, orElse: () => <TripBundle>[]);
+    if (trips.isEmpty) {
+      return const Align(
+        alignment: Alignment.centerLeft,
+        child: Text('还没有行程，请先在地图上新建行程', style: TextStyle(color: Colors.grey, fontSize: 12)),
+      );
+    }
+    return DropdownButtonFormField<String>(
+      key: const ValueKey('wp-trip'),
+      initialValue: _tripId,
+      decoration: const InputDecoration(labelText: '所属行程（必选）', border: OutlineInputBorder()),
+      items: [
+        for (final t in trips)
+          DropdownMenuItem(value: t.meta.id, child: Text(t.meta.name, overflow: TextOverflow.ellipsis)),
+      ],
+      onChanged: (v) => setState(() => _tripId = v),
+    );
+  }
+
   Future<void> _pickImage() async {
     final img = await pickImageBytes();
     if (img == null) return;
@@ -154,6 +184,18 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
       }
       return;
     }
+    if (_time == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请设置到达时间')));
+      }
+      return;
+    }
+    if (!_isEvent && _tripId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请选择所属行程')));
+      }
+      return;
+    }
     Navigator.pop(
       context,
       WaypointForm(
@@ -165,6 +207,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
         fromLatLng: _fromLatLng,
         mediaId: _mediaId,
         isEvent: _isEvent,
+        tripId: _isEvent ? null : _tripId,
       ),
     );
   }
@@ -173,7 +216,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
   Widget build(BuildContext context) {
     final pos = widget.existing?.latLng ?? widget.initialPos;
     return AlertDialog(
-      title: Text(widget.existing == null ? (widget.initialPos != null ? '新增地点' : '新增事件') : '编辑'),
+      title: Text(widget.existing == null ? '新增地点' : '编辑'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -184,7 +227,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
               CheckboxListTile(
                 value: _isEvent,
                 onChanged: (v) => setState(() => _isEvent = v ?? false),
-                title: const Text('作为生活事件'),
+                title: const Text('作为长期地点'),
                 dense: true,
                 contentPadding: EdgeInsets.zero,
               ),
@@ -207,7 +250,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
                   child: OutlinedButton.icon(
                     onPressed: _pickTime,
                     icon: const Icon(Icons.event),
-                    label: Text(_time == null ? '设置时间' : _fmtTime()),
+                    label: Text(_time == null ? '到达时间（必填）' : _fmtTime()),
                   ),
                 ),
                 if (_time != null) ...[
@@ -224,6 +267,10 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
                 ],
               ],
             ),
+            if (widget.existing == null && !_isEvent) ...[
+              const SizedBox(height: 8),
+              _tripPicker(),
+            ],
             if (_isEvent) ...[
               const SizedBox(height: 8),
               TextField(
@@ -615,9 +662,9 @@ class _TripDialogState extends ConsumerState<_TripDialog> {
               ],
             ),
             const SizedBox(height: 8),
-            eventPicker(_startEventId, (v) => setState(() => _startEventId = v), '起点事件'),
+            eventPicker(_startEventId, (v) => setState(() => _startEventId = v), '起点长期地点'),
             const SizedBox(height: 8),
-            eventPicker(_endEventId, (v) => setState(() => _endEventId = v), '终点事件'),
+            eventPicker(_endEventId, (v) => setState(() => _endEventId = v), '终点长期地点'),
             const SizedBox(height: 8),
             Row(
               children: [
