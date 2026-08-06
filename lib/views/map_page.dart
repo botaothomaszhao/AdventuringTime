@@ -164,7 +164,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     setState(() {
       _selected = _Selected(
         label: w.name.isEmpty ? '（未命名）' : w.name,
-        detail: w.desc ?? (w.fromName != null ? '从 ${w.fromName} 出发' : null),
+        detail: w.desc,
         time: w.time,
         actions: () {
           return [
@@ -409,8 +409,6 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
       time: form.time,
       timePrecision: form.precision,
       isEvent: form.isEvent,
-      fromName: form.fromName,
-      fromLatLng: form.fromLatLng,
       mediaId: form.mediaId,
       createdAt: now,
       updatedAt: now,
@@ -706,18 +704,6 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
                 ),
               ),
             ));
-            if (w.isEvent && w.fromLatLng != null) {
-              personLayers.add(PolylineLayer(
-                polylines: [
-                  Polyline(
-                    points: [w.fromLatLng!, w.latLng],
-                    strokeWidth: 1.5,
-                    color: const Color(0xAA9E9E9E),
-                    pattern: StrokePattern.dashed(segments: const [6, 4]),
-                  ),
-                ],
-              ));
-            }
           }
           personLayers.add(MarkerLayer(markers: markers));
         }

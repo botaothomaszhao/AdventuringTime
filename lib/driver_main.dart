@@ -194,8 +194,6 @@ Future<String> _handleCommand(String? message) async {
         time: form.time,
         timePrecision: form.precision,
         isEvent: form.isEvent,
-        fromName: form.fromName,
-        fromLatLng: form.fromLatLng,
         mediaId: form.mediaId,
         createdAt: now,
         updatedAt: now,

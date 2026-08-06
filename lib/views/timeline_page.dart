@@ -64,16 +64,12 @@ class TimelinePage extends ConsumerWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: ListTile(
-        leading: Icon(
-          w.fromName != null ? Icons.swap_horiz : Icons.star,
-          color: const Color(0xFFE65100),
-        ),
+        leading: const Icon(Icons.star, color: Color(0xFFE65100)),
         title: Text(w.name),
         subtitle: Text(
           [
             if (w.time != null) formatTime(w.time!, w.timePrecision),
             if (tripId != null) '在行程中',
-            if (w.fromName != null) '从 ${w.fromName}',
           ].join(' · '),
         ),
         trailing: PopupMenuButton<String>(

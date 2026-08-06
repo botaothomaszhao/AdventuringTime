@@ -16,8 +16,6 @@ class WaypointForm {
   final String? desc;
   final DateTime? time;
   final TimePrecision? precision;
-  final String? fromName;
-  final LatLng? fromLatLng;
   final String? mediaId;
   final bool isEvent;
   final String? tripId; // 普通地点的所属行程（长期地点为 null）
@@ -27,8 +25,6 @@ class WaypointForm {
     this.desc,
     this.time,
     this.precision,
-    this.fromName,
-    this.fromLatLng,
     this.mediaId,
     this.isEvent = false,
     this.tripId,
@@ -40,8 +36,6 @@ class WaypointForm {
     w.desc = desc;
     w.time = time;
     w.timePrecision = precision;
-    w.fromName = fromName;
-    w.fromLatLng = fromLatLng;
     w.mediaId = mediaId;
     w.isEvent = isEvent;
   }
@@ -83,10 +77,8 @@ class _WaypointDialog extends ConsumerStatefulWidget {
 class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
   late final TextEditingController _name;
   late final TextEditingController _desc;
-  late final TextEditingController _fromName;
   DateTime? _time;
   TimePrecision? _precision;
-  LatLng? _fromLatLng;
   String? _mediaId;
   late bool _isEvent;
   String? _tripId;
@@ -97,10 +89,8 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
     final e = widget.existing;
     _name = TextEditingController(text: e?.name ?? widget.defaultName ?? '');
     _desc = TextEditingController(text: e?.desc ?? '');
-    _fromName = TextEditingController(text: e?.fromName ?? '');
     _time = e?.time;
     _precision = e?.timePrecision;
-    _fromLatLng = e?.fromLatLng;
     _mediaId = e?.mediaId;
     _isEvent = e?.isEvent ?? false;
     _tripId = e == null ? null : widget.tripId;
@@ -125,23 +115,64 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
   void dispose() {
     _name.dispose();
     _desc.dispose();
-    _fromName.dispose();
     super.dispose();
   }
 
+  /// 按当前精度选择时间：年=年份列表，月=年+月，日=日历。
   Future<void> _pickTime() async {
-    final now = _time ?? DateTime.now();
-    final date = await showDatePicker(
-      context: context,
-      initialDate: now,
-      firstDate: DateTime(1900),
-      lastDate: DateTime(2100),
-    );
-    if (date == null) return;
+    final precision = _precision ?? TimePrecision.day;
+    DateTime? t;
+    switch (precision) {
+      case TimePrecision.year:
+        final y = await _pickValue(1900, 2100, '年');
+        if (y != null) t = DateTime(y, 1, 1);
+      case TimePrecision.month:
+        final y = await _pickValue(1900, 2100, '年');
+        if (y == null) return;
+        final m = await _pickValue(1, 12, '月');
+        if (m != null) t = DateTime(y, m, 1);
+      case TimePrecision.day:
+        final now = _time ?? DateTime.now();
+        t = await showDatePicker(
+          context: context,
+          initialDate: now,
+          firstDate: DateTime(1900),
+          lastDate: DateTime(2100),
+        );
+    }
+    if (t == null) return;
     setState(() {
-      _time = date;
-      _precision ??= TimePrecision.day;
+      _time = t;
+      _precision = precision;
     });
+  }
+
+  /// 简单数值列表选择（年份/月份）。
+  Future<int?> _pickValue(int from, int to, String unit) {
+    final cur = _time != null && from < to
+        ? (unit == '年' ? _time!.year : _time!.month)
+        : (unit == '年' ? DateTime.now().year : 1);
+    return showDialog<int>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('选择$unit'),
+        content: SizedBox(
+          width: 220,
+          height: 300,
+          child: ListView.builder(
+            controller: ScrollController(
+              initialScrollOffset: (cur - from) * 40.0,
+            ),
+            itemCount: to - from + 1,
+            itemBuilder: (c, i) => ListTile(
+              dense: true,
+              title: Text('${from + i} $unit'),
+              onTap: () => Navigator.pop(c, from + i),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// 普通地点必选的所属行程下拉（新建长期地点不显示）。
@@ -203,8 +234,6 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
         desc: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
         time: _time,
         precision: _precision,
-        fromName: _fromName.text.trim().isEmpty ? null : _fromName.text.trim(),
-        fromLatLng: _fromLatLng,
         mediaId: _mediaId,
         isEvent: _isEvent,
         tripId: _isEvent ? null : _tripId,
@@ -253,78 +282,22 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
                     label: Text(_time == null ? '到达时间（必填）' : _fmtTime()),
                   ),
                 ),
-                if (_time != null) ...[
-                  const SizedBox(width: 8),
-                  DropdownButton<TimePrecision>(
-                    value: _precision ?? TimePrecision.day,
-                    onChanged: (v) => setState(() => _precision = v),
-                    items: const [
-                      DropdownMenuItem(value: TimePrecision.year, child: Text('年')),
-                      DropdownMenuItem(value: TimePrecision.month, child: Text('月')),
-                      DropdownMenuItem(value: TimePrecision.day, child: Text('日')),
-                    ],
-                  ),
-                ],
+                const SizedBox(width: 8),
+                DropdownButton<TimePrecision>(
+                  key: const ValueKey('wp-precision'),
+                  value: _precision ?? TimePrecision.day,
+                  onChanged: (v) => setState(() => _precision = v),
+                  items: const [
+                    DropdownMenuItem(value: TimePrecision.year, child: Text('年')),
+                    DropdownMenuItem(value: TimePrecision.month, child: Text('月')),
+                    DropdownMenuItem(value: TimePrecision.day, child: Text('日')),
+                  ],
+                ),
               ],
             ),
             if (widget.existing == null && !_isEvent) ...[
               const SizedBox(height: 8),
               _tripPicker(),
-            ],
-            if (_isEvent) ...[
-              const SizedBox(height: 8),
-              TextField(
-                controller: _fromName,
-                decoration: const InputDecoration(labelText: '起点名（A→B，可选）', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 4),
-              if (_fromLatLng != null)
-                Text('起点坐标：${formatLatLng(_fromLatLng!)}'),
-              TextButton(
-                onPressed: () async {
-                  // 简单方式：让用户输入起点坐标；暂不引入二次地图选择
-                  final ctrl = TextEditingController();
-                  final lat = await showDialog<String>(
-                    context: context,
-                    builder: (c) => AlertDialog(
-                      title: const Text('起点纬度'),
-                      content: TextField(
-                        controller: ctrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(hintText: '例如 30.59'),
-                      ),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(c), child: const Text('取消')),
-                        FilledButton(onPressed: () => Navigator.pop(c, ctrl.text), child: const Text('确定')),
-                      ],
-                    ),
-                  );
-                  if (lat == null || lat.isEmpty) return;
-                  final lonCtrl = TextEditingController();
-                  if (!context.mounted) return;
-                  final lon = await showDialog<String>(
-                    context: context,
-                    builder: (c) => AlertDialog(
-                      title: const Text('起点经度'),
-                      content: TextField(
-                        controller: lonCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(hintText: '例如 114.30'),
-                      ),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(c), child: const Text('取消')),
-                        FilledButton(onPressed: () => Navigator.pop(c, lonCtrl.text), child: const Text('确定')),
-                      ],
-                    ),
-                  );
-                  final la = double.tryParse(lat);
-                  final lo = double.tryParse(lon ?? '');
-                  if (la != null && lo != null) {
-                    setState(() => _fromLatLng = LatLng(la, lo));
-                  }
-                },
-                child: const Text('设置起点坐标'),
-              ),
             ],
             const SizedBox(height: 8),
             Row(
