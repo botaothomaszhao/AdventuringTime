@@ -66,6 +66,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             children: [
               for (final e in _presets.entries)
                 ActionChip(
+                  avatar: _tileUrl.text == e.value
+                      ? const Icon(Icons.check, size: 16)
+                      : null,
                   label: Text(e.key),
                   onPressed: () {
                     setState(() {
