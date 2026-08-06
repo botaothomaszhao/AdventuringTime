@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../lifecycle.dart';
 import '../models.dart';
 import '../providers.dart';
 import 'widgets.dart';
@@ -48,10 +49,16 @@ Future<WaypointForm?> showWaypointDialog(
   required String personId,
   Waypoint? existing,
   LatLng? initialPos,
+  String? defaultName,
 }) {
   return showDialog<WaypointForm>(
     context: context,
-    builder: (_) => _WaypointDialog(personId: personId, existing: existing, initialPos: initialPos),
+    builder: (_) => _WaypointDialog(
+      personId: personId,
+      existing: existing,
+      initialPos: initialPos,
+      defaultName: defaultName,
+    ),
   );
 }
 
@@ -59,8 +66,9 @@ class _WaypointDialog extends ConsumerStatefulWidget {
   final String personId;
   final Waypoint? existing;
   final LatLng? initialPos;
+  final String? defaultName;
 
-  const _WaypointDialog({required this.personId, this.existing, this.initialPos});
+  const _WaypointDialog({required this.personId, this.existing, this.initialPos, this.defaultName});
 
   @override
   ConsumerState<_WaypointDialog> createState() => _WaypointDialogState();
@@ -80,7 +88,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
   void initState() {
     super.initState();
     final e = widget.existing;
-    _name = TextEditingController(text: e?.name ?? '');
+    _name = TextEditingController(text: e?.name ?? widget.defaultName ?? '');
     _desc = TextEditingController(text: e?.desc ?? '');
     _fromName = TextEditingController(text: e?.fromName ?? '');
     _time = e?.time;
@@ -154,7 +162,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('坐标：${pos?.latitude.toStringAsFixed(5)}, ${pos?.longitude.toStringAsFixed(5)}'),
+            Text('坐标：${pos == null ? '—' : formatLatLng(pos)}'),
             const SizedBox(height: 12),
             if (widget.existing == null)
               CheckboxListTile(
@@ -208,7 +216,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
               ),
               const SizedBox(height: 4),
               if (_fromLatLng != null)
-                Text('起点坐标：${_fromLatLng!.latitude.toStringAsFixed(5)}, ${_fromLatLng!.longitude.toStringAsFixed(5)}'),
+                Text('起点坐标：${formatLatLng(_fromLatLng!)}'),
               TextButton(
                 onPressed: () async {
                   // 简单方式：让用户输入起点坐标；暂不引入二次地图选择

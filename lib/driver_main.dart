@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'main.dart' as app;
+import 'geo_search.dart';
 import 'models.dart';
 import 'providers.dart';
 import 'storage.dart';
@@ -168,6 +169,12 @@ Future<String> _handleCommand(String? message) async {
             }
         ],
       });
+    case 'reverse':
+      final addr = await reverseAddress(
+        double.parse(params['lat']!),
+        double.parse(params['lon']!),
+      );
+      return 'addr:$addr';
     case 'nav':
       // 直接导航（绕开 driver tap 的 Windows idle 问题）
       navKey.currentState?.pushNamed(params['route'] ?? '/');

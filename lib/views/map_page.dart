@@ -51,12 +51,10 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   final List<LatLng> _draftPoints = [];
   String? _editKey; // 'tripId|pathId'
   _Selected? _selected;
-  bool _showSearch = false;
   List<GeoResult> _searchResults = [];
   String _searchQ = '';
   bool _searching = false;
-  String? _searchError;
-  final Map<String, List<LatLng>> _translateOrig = {};
+  String? _searchError;  final Map<String, List<LatLng>> _translateOrig = {};
   DiskCachedTileProvider? _tileProvider;
   final _polylineHit = ValueNotifier<LayerHitResult<String>?>(null);
 
@@ -326,8 +324,19 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     }
   }
 
-  Future<void> _addWaypointAt(LatLng latlng) async {
-    final form = await showWaypointDialog(context, personId: widget.personId, initialPos: latlng);
+  /// 落点新增：搜索得到的用搜索词作默认名称，否则反向地理编码取地址。
+  Future<void> _addWaypointAt(LatLng latlng, {String? defaultName}) async {
+    var name = defaultName;
+    if (name == null || name.isEmpty) {
+      name = await reverseAddress(latlng.latitude, latlng.longitude);
+    }
+    if (!mounted) return;
+    final form = await showWaypointDialog(
+      context,
+      personId: widget.personId,
+      initialPos: latlng,
+      defaultName: name,
+    );
     if (form == null) {
       if (mounted) setState(() => _mode = _EditMode.none);
       return;
@@ -349,7 +358,13 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     );
     form.applyTo(w);
     await ref.read(personDataProvider(widget.personId).notifier).saveLifeWaypoint(w);
-    if (mounted) setState(() => _mode = _EditMode.none);
+    if (mounted) {
+      setState(() {
+        _mode = _EditMode.none;
+        _searchResults = [];
+        _searchQ = '';
+      });
+    }
   }
 
   void _addDraftFromScreen(Offset localPos) {
@@ -496,9 +511,8 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   void _gotoResult(GeoResult r) {
     final latlng = LatLng(r.lat, r.lon);
     _mapCtrl.move(latlng, 14);
-    _addWaypointAt(latlng);
+    _addWaypointAt(latlng, defaultName: r.name);
     setState(() {
-      _showSearch = false;
       _searchResults = [];
       _searchQ = '';
     });
@@ -713,6 +727,35 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
       layers.add(MarkerLayer(markers: markers));
     }
 
+    // 添加地点模式：搜索结果用数字标注在地图上
+    if (_mode == _EditMode.addPlace && _searchResults.isNotEmpty) {
+      final numMarkers = <Marker>[];
+      for (var i = 0; i < _searchResults.length; i++) {
+        final idx = i;
+        final r = _searchResults[i];
+        numMarkers.add(Marker(
+          point: LatLng(r.lat, r.lon),
+          width: 30,
+          height: 30,
+          child: GestureDetector(
+            onTap: () => _gotoResult(r),
+            child: Container(
+              alignment: Alignment.center,
+              decoration: const BoxDecoration(
+                color: Color(0xFFD84315),
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                '${idx + 1}',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+            ),
+          ),
+        ));
+      }
+      layers.add(MarkerLayer(markers: numMarkers));
+    }
+
     return layers;
   }
 
@@ -748,7 +791,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
 
   Widget _buildModeBanner() {
     final msg = switch (_mode) {
-      _EditMode.addPlace => '点击地图放置地点（可在对话框中勾选"作为生活事件"）',
+      _EditMode.addPlace => '输入搜索或点击地图选点',
       _EditMode.drawPath => '点击落点，双击结束（${_draftPoints.length} 点）',
       _EditMode.editPath => '拖动顶点、点顶点删除、点空心圆插入',
       _EditMode.translatePath => '拖动整条路径',
@@ -782,7 +825,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   }
 
   Widget _buildSearchBar() {
-    if (!_showSearch) return const SizedBox.shrink();
+    if (_mode != _EditMode.addPlace) return const SizedBox.shrink();
     return Positioned(
       top: 8,
       left: 8,
@@ -802,7 +845,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
                       onChanged: (v) => setState(() => _searchQ = v),
                       onSubmitted: (_) => _doSearch(),
                       decoration: const InputDecoration(
-                        hintText: '搜索地点（如 xx镇）',
+                        hintText: '输入搜索，或直接点击地图选点',
                         border: InputBorder.none,
                       ),
                     ),
@@ -813,7 +856,14 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
                         ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                         : const Icon(Icons.search),
                   ),
-                  IconButton(onPressed: () => setState(() => _showSearch = false), icon: const Icon(Icons.close)),
+                  IconButton(
+                    onPressed: () => setState(() {
+                      _mode = _EditMode.none;
+                      _searchResults = [];
+                      _searchQ = '';
+                    }),
+                    icon: const Icon(Icons.close),
+                  ),
                 ],
               ),
             ),
@@ -824,11 +874,11 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
                   Expanded(child: Text(_searchError!, style: const TextStyle(color: Colors.red, fontSize: 12))),
                 ]),
               ),
-            for (final r in _searchResults)
-              ListTile(
-                dense: true,
-                title: Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                onTap: () => _gotoResult(r),
+            if (_searchResults.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Text('结果已用数字标注在地图上，点击数字选点',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
               ),
           ],
         ),
@@ -866,11 +916,6 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
         icon: const Icon(Icons.luggage_outlined),
         tooltip: '新建行程',
         onPressed: _startAddTrip,
-      ),
-      IconButton(
-        icon: const Icon(Icons.search),
-        tooltip: '搜索',
-        onPressed: () => setState(() => _showSearch = !_showSearch),
       ),
     ];
   }

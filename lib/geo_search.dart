@@ -80,3 +80,27 @@ Future<List<GeoResult>> _searchNominatim(String q) async {
       ),
   ];
 }
+
+/// 反向地理编码：坐标 → 小范围地址（村/镇/路名，不含国家省份等大范围）。
+/// 无结果或失败返回 null。
+Future<String?> reverseAddress(double lat, double lon) async {
+  try {
+    final url = Uri.parse('https://photon.komoot.io/reverse?lon=$lon&lat=$lat');
+    final resp = await http.get(url, headers: {'User-Agent': 'AdventuringTime/1.0'}).timeout(const Duration(seconds: 4));
+    if (resp.statusCode != 200) return null;
+    final json = jsonDecode(utf8.decode(resp.bodyBytes));
+    final features = (json['features'] as List? ?? []);
+    if (features.isEmpty) return null;
+    final props = (features.first['properties'] as Map<String, dynamic>? ?? {});
+    final parts = <String?>[
+      props['name'] as String?,
+      props['street'] as String?,
+      props['district'] as String?,
+      props['city'] as String?,
+    ];
+    final out = parts.where((s) => s != null && s.isNotEmpty).map((s) => s!).toList();
+    return out.isEmpty ? null : out.join('，');
+  } catch (_) {
+    return null;
+  }
+}

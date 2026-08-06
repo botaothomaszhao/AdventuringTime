@@ -229,3 +229,10 @@ String formatMeters(double m) {
   if (m >= 1000) return '${(m / 1000).toStringAsFixed(m >= 100000 ? 0 : 1)} km';
   return '${m.round()} m';
 }
+
+/// 坐标 SWNE 格式化：N25.69000° E100.16000°。
+String formatLatLng(LatLng ll) {
+  final ns = ll.latitude >= 0 ? 'N' : 'S';
+  final ew = ll.longitude >= 0 ? 'E' : 'W';
+  return '$ns${ll.latitude.abs().toStringAsFixed(5)}° $ew${ll.longitude.abs().toStringAsFixed(5)}°';
+}
