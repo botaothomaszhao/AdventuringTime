@@ -57,10 +57,6 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   String? _searchError;  final Map<String, List<LatLng>> _translateOrig = {};
   String? _pendingTripId; // 添加地点模式的目标行程（从行程弹窗进入时预选）
   DiskCachedTileProvider? _tileProvider;
-  final _pathHit = ValueNotifier<LayerHitResult<String>?>(null); // 路径层命中
-  final _tripHit = ValueNotifier<LayerHitResult<String>?>(null); // 行程连接线层命中
-  String? _hoveredPath; // 鼠标悬浮命中的路径（仅记录，点击才打开）
-  String? _hoveredTrip; // 鼠标悬浮命中的行程连接线（仅记录，点击才打开）
 
   static const _palette = [
     Color(0xFF2E7D32), Color(0xFFC62828), Color(0xFF1565C0),
@@ -74,58 +70,63 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   void initState() {
     super.initState();
     _initTileProvider();
-    _pathHit.addListener(_onPathHit);
-    _tripHit.addListener(_onTripHit);
   }
 
   @override
   void dispose() {
-    _pathHit.dispose();
-    _tripHit.dispose();
     super.dispose();
   }
 
-  /// hover 只记录命中的线，不弹卡；点击时由 _onTap 打开。
-  void _onPathHit() {
-    final r = _pathHit.value;
-    if (_mode != _EditMode.none || r == null || r.hitValues.isEmpty) {
-      _hoveredPath = null;
-    } else {
-      _hoveredPath = r.hitValues.first;
-    }
+  /// 点击位置与线段 a→b 的屏幕像素距离。
+  double _distToSegmentPx(LatLng p, LatLng a, LatLng b) {
+    final cam = _mapCtrl.camera;
+    final sp = cam.latLngToScreenOffset(p);
+    final sa = cam.latLngToScreenOffset(a);
+    final sb = cam.latLngToScreenOffset(b);
+    final ab = sb - sa;
+    final ap = sp - sa;
+    final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
+    final t = len2 == 0 ? 0.0 : ((ap.dx * ab.dx + ap.dy * ab.dy) / len2).clamp(0.0, 1.0);
+    return (sp - (sa + ab * t)).distance;
   }
 
-  void _onTripHit() {
-    final r = _tripHit.value;
-    if (_mode != _EditMode.none || r == null || r.hitValues.isEmpty) {
-      _hoveredTrip = null;
-    } else {
-      _hoveredTrip = r.hitValues.first;
-    }
-  }
-
-  /// 打开悬停命中的实体（行程连接线优先，其次路径）。
-  void _openHovered() {
+  /// 点击位置命中检测：路径优先（路径有编辑操作），其次行程连接线；未命中则关闭卡片。
+  void _openAt(LatLng tap) {
     final d = _personData();
-    final tripKey = _hoveredTrip;
-    _hoveredTrip = null;
-    if (tripKey != null) {
-      final parts = tripKey.split('|');
-      if (parts.length == 2 && parts[0] == 'trip') {
-        final t = d?.tripById(parts[1]);
-        if (t != null) {
-          _selectTrip(t, widget.personId);
-          return;
+    if (d == null) return;
+    const thresh = 10.0;
+    // 路径优先
+    for (final t in d.trips) {
+      for (final p in t.gpx.paths) {
+        for (var i = 1; i < p.points.length; i++) {
+          if (_distToSegmentPx(tap, p.points[i - 1].latLng, p.points[i].latLng) <= thresh) {
+            _selectPath(p, t.meta.id, widget.personId);
+            return;
+          }
         }
       }
     }
-    final pathKey = _hoveredPath;
-    _hoveredPath = null;
-    if (pathKey == null) return;
-    final parts = pathKey.split('|');
-    if (parts.length != 2) return;
-    final p = d?.tripById(parts[0])?.gpx.pathById(parts[1]);
-    if (p != null) _selectPath(p, parts[0], widget.personId);
+    // 行程连接线
+    final life = buildLifePath(d.life.events, d.trips);
+    String? bestTrip;
+    var bestTripDist = double.infinity;
+    for (final s in life.segs) {
+      final tripId = s.tripId;
+      if (tripId == null) continue;
+      final dist = _distToSegmentPx(tap, s.from, s.to);
+      if (dist < bestTripDist) {
+        bestTripDist = dist;
+        bestTrip = tripId;
+      }
+    }
+    if (bestTrip != null && bestTripDist <= thresh) {
+      final t = d.tripById(bestTrip);
+      if (t != null) {
+        _selectTrip(t, widget.personId);
+        return;
+      }
+    }
+    setState(() => _selected = null);
   }
 
   Future<void> _initTileProvider() async {
@@ -410,16 +411,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   void _onTap(TapPosition pos, LatLng latlng) {
     switch (_mode) {
       case _EditMode.none:
-        if (_hoveredTrip != null || _hoveredPath != null) {
-          // 悬浮在连接线/路径上时点击 → 打开对应实体
-          _openHovered();
-        } else {
-          setState(() {
-            _selected = null;
-            _hoveredTrip = null;
-            _hoveredPath = null;
-          });
-        }
+        _openAt(latlng);
       case _EditMode.addPlace:
         _addWaypointAt(latlng);
       case _EditMode.drawPath:
@@ -790,51 +782,25 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
               hitValue: '$tripId|${path.id}',
             ));
           }
-          personLayers.add(PolylineLayer(
-            polylines: polylines,
-            hitNotifier: _pathHit,
-            minimumHitbox: 10,
-          ));
+          personLayers.add(PolylineLayer(polylines: polylines));
         }
       }
 
       if (toggles.lifePath) {
         final life = buildLifePath(d.life.events, d.trips);
-        final tripSegs = <Polyline<String>>[];
-        final otherSegs = <Polyline>[];
+        final segs = <Polyline>[];
         for (final s in life.segs) {
-          final line = Polyline(
+          segs.add(Polyline(
             points: [s.from, s.to],
             strokeWidth: s.recorded ? 2.5 : 2,
             color: const Color(0xFFB71C1C),
             pattern: s.recorded
                 ? const StrokePattern.solid()
                 : StrokePattern.dashed(segments: const [8, 6]),
-          );
-          if (s.tripId != null) {
-            tripSegs.add(Polyline<String>(
-              points: [s.from, s.to],
-              strokeWidth: s.recorded ? 2.5 : 2,
-              color: const Color(0xFFB71C1C),
-              pattern: s.recorded
-                  ? const StrokePattern.solid()
-                  : StrokePattern.dashed(segments: const [8, 6]),
-              hitValue: 'trip|${s.tripId}',
-            ));
-          } else {
-            otherSegs.add(line);
-          }
-        }
-        if (otherSegs.isNotEmpty) {
-          personLayers.add(PolylineLayer(polylines: otherSegs));
-        }
-        if (tripSegs.isNotEmpty) {
-          // 行程段可点击：点开行程弹窗
-          personLayers.add(PolylineLayer(
-            polylines: tripSegs,
-            hitNotifier: _tripHit,
-            minimumHitbox: 10,
           ));
+        }
+        if (segs.isNotEmpty) {
+          personLayers.add(PolylineLayer(polylines: segs));
         }
       }
 
