@@ -41,6 +41,7 @@ class MediaStore {
   MediaStore(this.dir);
 
   File? find(String mediaId) {
+    if (!dir.existsSync()) return null;
     final name = mediaId.split('.').first;
     final l = dir.listSync().where((f) => f is File && p.basenameWithoutExtension(f.path) == name).toList();
     return l.isEmpty ? null : l.first as File;
@@ -70,8 +71,10 @@ class MediaStore {
     if (f != null) await f.delete();
   }
 
-  List<File> listAll() =>
-      dir.listSync().whereType<File>().where((f) => p.extension(f.path).isNotEmpty).toList();
+  List<File> listAll() {
+    if (!dir.existsSync()) return [];
+    return dir.listSync().whereType<File>().where((f) => p.extension(f.path).isNotEmpty).toList();
+  }
 }
 
 class PersonRepository {
@@ -109,8 +112,9 @@ class PersonRepository {
 
   Future<void> saveLife(GpxFile gpx) async {
     final f = File(p.join(root.path, 'life.gpx'));
-    await _backupBefore('life.gpx', f);
+    await backupBefore('life.gpx', f);
     await f.writeAsString(toGpx(gpx), flush: true);
+    await setLifeUpdatedAt(DateTime.now());
   }
 
   // ---------- trips ----------
@@ -156,8 +160,8 @@ class PersonRepository {
     final jf = File(p.join(dir.path, 'trip.json'));
     final gf = File(p.join(dir.path, 'trip.gpx'));
     bundle.meta.updatedAt = DateTime.now();
-    await _backupBefore('trip_${bundle.meta.id}.json', jf);
-    await _backupBefore('trip_${bundle.meta.id}.gpx', gf);
+    await backupBefore('trip_${bundle.meta.id}.json', jf);
+    await backupBefore('trip_${bundle.meta.id}.gpx', gf);
     await _writeJson(jf, bundle.meta.toJson());
     await gf.writeAsString(toGpx(bundle.gpx, trip: bundle.meta), flush: true);
   }
@@ -165,16 +169,17 @@ class PersonRepository {
   Future<void> deleteTrip(String tripId) async {
     final dir = tripDir(tripId);
     if (await dir.exists()) {
-      await _backupBefore('trip_$tripId', dir);
+      await backupBefore('trip_$tripId', dir);
       await dir.delete(recursive: true);
     }
+    await recordTombstone('trip', tripId);
   }
 
   // ---------- 备份 ----------
 
   /// 覆盖/删除前把旧版本整体复制到 `backups/<yyyyMMdd-HHmmss>/`。
   /// src 是文件则备份为单文件，是目录则备份为目录（与 src 类型一致）。
-  Future<void> _backupBefore(String name, FileSystemEntity src) async {
+  Future<void> backupBefore(String name, FileSystemEntity src) async {
     if (!await src.exists()) return;
     final ts = _timestamp();
     final dest = FileSystemEntity.typeSync(src.path) == FileSystemEntityType.file
@@ -220,9 +225,77 @@ class PersonRepository {
       _ => File(p.join(root.path, unitName)),
     };
     if (await target.exists() && target is File) {
-      await _backupBefore('restore_$unitName', target);
+      await backupBefore('restore_$unitName', target);
     }
     await _copyTree(src, target);
+  }
+
+  // ---------- 同步状态（manifest.json）----------
+
+  File get manifestFile => File(p.join(root.path, 'manifest.json'));
+
+  Future<Map<String, dynamic>> _readManifest() async {
+    final f = manifestFile;
+    if (!await f.exists()) return {};
+    return _readJson(f);
+  }
+
+  Future<void> _writeManifest(Map<String, dynamic> m) async {
+    await manifestFile.parent.create(recursive: true);
+    await manifestFile.writeAsString(toJsonString(m), flush: true);
+  }
+
+  Future<List<SyncTombstone>> tombstones() async {
+    final j = await _readManifest();
+    return [
+      for (final t in (j['tombstones'] as List? ?? []))
+        SyncTombstone.fromJson(t as Map<String, dynamic>),
+    ];
+  }
+
+  Future<void> recordTombstone(String type, String unitId) async {
+    final j = await _readManifest();
+    final list = [
+      for (final t in (j['tombstones'] as List? ?? []))
+        if (t is Map && t['type'] != type || (t is Map && t['unitId'] != unitId))
+          SyncTombstone.fromJson(t as Map<String, dynamic>),
+    ];
+    list.add(SyncTombstone(type: type, unitId: unitId, updatedAt: DateTime.now()));
+    j['tombstones'] = [for (final t in list) t.toJson()];
+    await _writeManifest(j);
+  }
+
+  Future<void> clearTombstone(String type, String unitId) async {
+    final j = await _readManifest();
+    final list = (j['tombstones'] as List? ?? []).cast<Map>();
+    final before = list.length;
+    list.removeWhere((t) => t['type'] == type && t['unitId'] == unitId);
+    if (list.length == before) return;
+    j['tombstones'] = list;
+    await _writeManifest(j);
+  }
+
+  /// life.gpx 的同步时间戳：写文件时更新，同步拉取时设为对方值。
+  Future<void> setLifeUpdatedAt(DateTime t) async {
+    final j = await _readManifest();
+    j['lifeUpdatedAt'] = t.toUtc().toIso8601String();
+    await _writeManifest(j);
+  }
+
+  Future<DateTime?> lifeUpdatedAt() async {
+    final s = (await _readManifest())['lifeUpdatedAt'] as String?;
+    return s == null ? null : DateTime.tryParse(s);
+  }
+
+  Future<void> setLastSyncAt(DateTime t) async {
+    final j = await _readManifest();
+    j['lastSyncAt'] = t.toUtc().toIso8601String();
+    await _writeManifest(j);
+  }
+
+  Future<DateTime?> lastSyncAt() async {
+    final s = (await _readManifest())['lastSyncAt'] as String?;
+    return s == null ? null : DateTime.tryParse(s);
   }
 
   /// 复制文件或目录树到目标路径（类型一致）。
@@ -287,5 +360,16 @@ class AppRepository {
   Future<void> deletePerson(String personId) async {
     final dir = personDir(personId);
     if (await dir.exists()) await dir.delete(recursive: true);
+  }
+
+  /// 把整个人目录移到回收目录（data/trash/<时间戳>-<personId>），覆盖导入用。
+  Future<void> trashPerson(String personId) async {
+    final src = personDir(personId);
+    if (!await src.exists()) return;
+    final trash = Directory(p.join(peopleRoot.parent.path, 'trash'));
+    await trash.create(recursive: true);
+    await PersonRepository._copyTree(
+        src, Directory(p.join(trash.path, '${DateTime.now().millisecondsSinceEpoch}-$personId')));
+    await src.delete(recursive: true);
   }
 }

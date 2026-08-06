@@ -247,3 +247,24 @@ class TripBundle {
 
   TripBundle({required this.meta, required this.gpx});
 }
+
+/// 同步删除墓碑，存于 manifest.json，随清单传播给其他端。
+class SyncTombstone {
+  final String type; // trip | life | media
+  final String unitId;
+  final DateTime updatedAt; // 删除时间
+
+  SyncTombstone({required this.type, required this.unitId, required this.updatedAt});
+
+  Map<String, dynamic> toJson() => {
+        'type': type,
+        'unitId': unitId,
+        'updatedAt': updatedAt.toUtc().toIso8601String(),
+      };
+
+  factory SyncTombstone.fromJson(Map<String, dynamic> j) => SyncTombstone(
+        type: j['type'] as String,
+        unitId: j['unitId'] as String,
+        updatedAt: DateTime.parse(j['updatedAt'] as String),
+      );
+}

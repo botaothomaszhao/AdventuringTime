@@ -1,9 +1,14 @@
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../models.dart';
 import '../providers.dart';
+import '../storage.dart';
+import '../transfer.dart';
 import 'dialogs.dart';
 import 'map_page.dart';
 import 'stats_page.dart';
@@ -57,8 +62,81 @@ class _PersonHomeState extends ConsumerState<PersonHome> with SingleTickerProvid
         if (ok && currentId != null) {
           await notifier.removePerson(currentId);
         }
+      case 'export':
+        if (currentId != null) await _exportPerson(context, currentId);
+      case 'import':
+        await _importPerson(context);
       default:
         ref.read(currentPersonIdProvider.notifier).select(v);
+    }
+  }
+
+  Future<void> _exportPerson(BuildContext context, String personId) async {
+    try {
+      final repo = await ref.read(personRepoProvider(personId).future);
+      final person = await repo.loadPerson();
+      final bytes = await exportPersonPack(repo);
+      final filename = '${person.name.isEmpty ? 'person' : person.name}-${DateTime.now().millisecondsSinceEpoch}.atrip';
+      if (Platform.isAndroid) {
+        final path = await saveToDownloads(filename, bytes);
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('已导出到下载目录：$path')));
+      } else {
+        final loc = await getSaveLocation(suggestedName: filename);
+        final path = loc?.path;
+        if (path == null) return;
+        await File(path).writeAsBytes(bytes, flush: true);
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('人物已导出')));
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('导出失败：$e')));
+    }
+  }
+
+  Future<void> _importPerson(BuildContext context) async {
+    const group = XTypeGroup(label: 'atrip', extensions: ['atrip']);
+    final file = await openFile(acceptedTypeGroups: const [group]);
+    if (file == null) return;
+    try {
+      final bytes = await file.readAsBytes();
+      final personId = await packPersonId(bytes);
+      if (personId == null) {
+        throw const FormatException('无效的 .atrip 包');
+      }
+      final root = await ref.read(dataRootProvider.future);
+      final app = AppRepository(Directory('${root.path}${Platform.pathSeparator}people'));
+      var mode = 'new';
+      if (await app.personDir(personId).exists()) {
+        final m = await showDialog<String>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: const Text('人物已存在'),
+            content: const Text('选择合并可保留两端数据，冲突以较新版本为准；覆盖会替换当前数据。'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(c), child: const Text('取消')),
+              TextButton(onPressed: () => Navigator.pop(c, 'overwrite'), child: const Text('覆盖')),
+              FilledButton(onPressed: () => Navigator.pop(c, 'merge'), child: const Text('合并')),
+            ],
+          ),
+        );
+        if (m == null) return;
+        mode = m;
+      }
+      final id = await importPersonPack(app, bytes, mode: mode);
+      await ref.read(peopleProvider.notifier).reload();
+      ref.read(currentPersonIdProvider.notifier).select(id);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('人物已导入')));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('导入失败：$e')));
     }
   }
 
@@ -86,6 +164,9 @@ class _PersonHomeState extends ConsumerState<PersonHome> with SingleTickerProvid
             if (current != null) ...[
               const PopupMenuItem(value: 'edit', child: Text('编辑资料')),
               const PopupMenuItem(value: 'delete', child: Text('删除当前人物')),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 'export', child: Text('导出人物整包 (.atrip)')),
+              const PopupMenuItem(value: 'import', child: Text('导入人物整包 (.atrip)')),
             ],
           ],
           child: Row(

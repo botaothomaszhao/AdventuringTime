@@ -59,6 +59,11 @@ class PeopleNotifier extends AsyncNotifier<List<Person>> {
     state = AsyncData([...(state.value ?? []).where((p) => p.id != personId)]);
   }
 
+  Future<void> reload() async {
+    final repo = await _repo();
+    state = AsyncData(await repo.listPeople());
+  }
+
   Future<void> updatePerson(Person person) async {
     final repo = await _repo();
     await repo.personDir(person.id).exists().then((_) async {
@@ -273,11 +278,11 @@ final mediaListProvider = FutureProvider.family<List<File>, String>((ref, person
   return repo.media.listAll();
 });
 
-/// 设置：瓦片源 URL。墙内默认 Esri（WGS-84 与 OSM 坐标一致），OSM 可在设置中切换。
+/// 设置：瓦片源 URL。墙内默认 Carto Voyager，可在设置中切换。
 final tileUrlProvider = FutureProvider<String>((ref) async {
   final prefs = await SharedPreferences.getInstance();
   return prefs.getString('tileUrl') ??
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+      'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png';
 });
 
 Future<void> setTileUrl(String url) async {

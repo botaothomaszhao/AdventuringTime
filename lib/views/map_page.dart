@@ -68,6 +68,9 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     Color(0xFF6A1B9A), Color(0xFFEF6C00), Color(0xFF00838F),
   ];
 
+  static const _minZoom = 1.0;
+  static const _maxZoom = 19.0;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -98,15 +101,26 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     });
   }
 
+  /// 蓝点实时位置：记录中随采样点移动（geolocator 流可能与前台服务 GPS 请求冲突而冻结），
+  /// 空闲时用 geolocator 实时流。
+  LatLng? _currentBluePos(RecordState? rec) {
+    if (rec != null && rec.status == RecordStatus.recording && rec.points.isNotEmpty) {
+      return rec.points.last.latLng;
+    }
+    return _myPos;
+  }
+
   /// 添加地点模式下点击蓝点：在当前位置添加地点。
   void _onMyPosTap() {
-    if (_mode != _EditMode.addPlace || _myPos == null) return;
-    _addWaypointAt(_myPos!);
+    if (_mode != _EditMode.addPlace) return;
+    final p = _currentBluePos(Platform.isAndroid ? ref.read(recordingProvider) : null);
+    if (p == null) return;
+    _addWaypointAt(p);
   }
 
   /// 相机回到我的位置并把地图方向复位到正北。
   void _centerOnMyPos() {
-    final p = _myPos;
+    final p = _currentBluePos(Platform.isAndroid ? ref.read(recordingProvider) : null);
     if (p == null) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('定位不可用，请检查定位权限与开关')));
@@ -114,6 +128,20 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     }
     _mapCtrl.move(p, _mapCtrl.camera.zoom);
     _mapCtrl.rotate(0);
+  }
+
+  /// 放大：已达最大级则不动（避免 move 回最大值表现为缩小）。
+  void _zoomIn() {
+    final z = _mapCtrl.camera.zoom;
+    if (z >= _maxZoom - 0.001) return;
+    _mapCtrl.move(_mapCtrl.camera.center, (z + 1).clamp(_minZoom, _maxZoom));
+  }
+
+  /// 缩小：已达最小级则不动。
+  void _zoomOut() {
+    final z = _mapCtrl.camera.zoom;
+    if (z <= _minZoom + 0.001) return;
+    _mapCtrl.move(_mapCtrl.camera.center, (z - 1).clamp(_minZoom, _maxZoom));
   }
 
   /// 左上角记录按钮：空闲时开始记录，记录中/暂停时停止并保存。
@@ -784,6 +812,36 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
             onPointerMove: (e) => _applyTranslate(e.localDelta),
             child: const SizedBox.expand(),
           ),
+        if (Platform.isAndroid)
+          Positioned(
+            right: 8,
+            bottom: 8,
+            child: Material(
+              elevation: 4,
+              borderRadius: BorderRadius.circular(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.add),
+                    tooltip: '放大',
+                    onPressed: _zoomIn,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.remove),
+                    tooltip: '缩小',
+                    onPressed: _zoomOut,
+                  ),
+                  if (_mode == _EditMode.none)
+                    IconButton(
+                      icon: const Icon(Icons.my_location),
+                      tooltip: '回到我的位置，方向复位正北',
+                      onPressed: _centerOnMyPos,
+                    ),
+                ],
+              ),
+            ),
+          ),
         if (_mode != _EditMode.none) _buildModeBanner(),
         _buildSearchBar(),
         Positioned(left: 8, bottom: 8, child: _buildToolbar()),
@@ -815,17 +873,6 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
                   n.resume();
                 }
               },
-            ),
-          ),
-        if (Platform.isAndroid && _mode == _EditMode.none)
-          Positioned(
-            right: 8,
-            bottom: 8,
-            child: FloatingActionButton.small(
-              heroTag: 'locate',
-              tooltip: '回到我的位置，方向复位正北',
-              onPressed: _centerOnMyPos,
-              child: const Icon(Icons.my_location),
             ),
           ),
         if (_selected != null)
@@ -993,11 +1040,12 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
       ]));
     }
 
-    // 蓝点：我的实时位置（仅 Android）
-    if (Platform.isAndroid && _myPos != null) {
+    // 蓝点：我的实时位置（仅 Android；记录中随采样点移动）
+    final bluePos = _currentBluePos(rec);
+    if (Platform.isAndroid && bluePos != null) {
       layers.add(MarkerLayer(markers: [
         Marker(
-          point: _myPos!,
+          point: bluePos,
           width: 40,
           height: 40,
           child: GestureDetector(
@@ -1471,8 +1519,12 @@ class _RecordHudState extends State<_RecordHud> {
     super.dispose();
   }
 
-  String _fmtDuration(DateTime? start) {
-    final d = start == null ? Duration.zero : DateTime.now().difference(start);
+  /// 显示时长：累计记录时长 + 当前段活跃时长；暂停时只有累计值（停表）。
+  String _fmtDuration(RecordState rec) {
+    final base = Duration(seconds: rec.recordingSeconds);
+    final d = rec.activeSince == null
+        ? base
+        : base + DateTime.now().difference(rec.activeSince!);
     String two(int v) => v.toString().padLeft(2, '0');
     return '${two(d.inHours)}:${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}';
   }
@@ -1494,7 +1546,7 @@ class _RecordHudState extends State<_RecordHud> {
               color: rec.status == RecordStatus.recording ? Colors.red : Colors.orange,
             ),
             const SizedBox(width: 6),
-            Text(_fmtDuration(rec.startedAt), style: const TextStyle(fontSize: 13)),
+            Text(_fmtDuration(rec), style: const TextStyle(fontSize: 13)),
             const SizedBox(width: 10),
             Text(formatMeters(rec.meters), style: const TextStyle(fontSize: 13)),
             IconButton(

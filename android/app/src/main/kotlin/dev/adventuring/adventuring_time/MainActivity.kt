@@ -1,18 +1,23 @@
 package dev.adventuring.adventuring_time
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.PowerManager
+import android.provider.MediaStore
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
+import java.io.IOException
 
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(engine: FlutterEngine) {
@@ -55,6 +60,44 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // 导入导出：把导出文件写入公共下载目录
+        MethodChannel(messenger, "adventuring_time/files").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "saveToDownloads" -> {
+                    try {
+                        val filename = call.argument<String>("filename") ?: "adventuring_time.atrip"
+                        val data = call.argument<ByteArray>("data") ?: ByteArray(0)
+                        result.success(saveToDownloads(filename, data))
+                    } catch (e: Exception) {
+                        result.error("save_failed", e.message, null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun saveToDownloads(filename: String, data: ByteArray): String {
+        if (Build.VERSION.SDK_INT >= 29) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, filename)
+                put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            }
+            val resolver = contentResolver
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: throw IOException("无法写入下载目录")
+            resolver.openOutputStream(uri)?.use { it.write(data) }
+                ?: throw IOException("无法打开输出流")
+            return Environment.DIRECTORY_DOWNLOADS + "/" + filename
+        }
+        // Android 9 及以下：写公共下载目录（需 WRITE_EXTERNAL_STORAGE）
+        val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        if (!dir.exists()) dir.mkdirs()
+        val f = File(dir, filename)
+        f.writeBytes(data)
+        return f.absolutePath
     }
 
     private fun sendAction(action: String) {

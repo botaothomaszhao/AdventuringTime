@@ -277,9 +277,9 @@ String formatMeters(double m) {
   return '${m.round()} m';
 }
 
-/// 坐标 SWNE 格式化：N25.69000° E100.16000°。
+/// 坐标 SWNE 格式化：25.69000°N 100.16000°E。
 String formatLatLng(LatLng ll) {
   final ns = ll.latitude >= 0 ? 'N' : 'S';
   final ew = ll.longitude >= 0 ? 'E' : 'W';
-  return '$ns${ll.latitude.abs().toStringAsFixed(5)}° $ew${ll.longitude.abs().toStringAsFixed(5)}°';
+  return '${ll.latitude.abs().toStringAsFixed(5)}°$ns ${ll.longitude.abs().toStringAsFixed(5)}°$ew';
 }

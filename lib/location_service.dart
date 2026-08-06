@@ -24,13 +24,15 @@ class LocationService {
   static Future<List<RawPoint>> stop() async =>
       _decodePoints(await _channel.invokeMethod('stop'));
 
-  /// 会话快照：{running, paused, startAt, points}。重进应用时恢复。
+  /// 会话快照：运行状态、持久化状态（1 记录中/0 暂停）、开始时间、累计时长、当前段起始、采样点。
   static Future<SessionSnapshot> session() async {
     final m = await _channel.invokeMethod('getSession') as Map;
     return SessionSnapshot(
       running: m['running'] as bool? ?? false,
-      paused: m['paused'] as bool? ?? false,
+      state: m['state'] as String? ?? '0',
       startAt: _msToTime(m['startAt']),
+      segmentStart: _msToTime(m['segmentStart']),
+      activeMs: (m['activeMs'] as num?)?.toInt() ?? 0,
       points: _decodePoints(m['points']),
     );
   }
@@ -78,28 +80,41 @@ class RawPoint {
 
 class SessionSnapshot {
   final bool running;
-  final bool paused;
+  final String state; // '1' 记录中 / '0' 暂停（持久化状态文件值）
   final DateTime? startAt;
+  final DateTime? segmentStart; // 当前记录段起始时间
+  final int activeMs; // 已累计的记录时长（不含暂停）
   final List<RawPoint> points;
 
   SessionSnapshot({
     required this.running,
-    required this.paused,
+    required this.state,
     required this.startAt,
+    required this.segmentStart,
+    required this.activeMs,
     required this.points,
   });
 }
 
 enum RecordStatus { idle, recording, paused }
 
-/// 一次记录会话的状态：已采样轨迹点 + 累计里程 + 开始时间。
+/// 一次记录会话的状态：已采样轨迹点 + 累计里程 + 开始时间 + 记录时长。
 class RecordState {
   final RecordStatus status;
   final List<TrackPoint> points;
   final double meters;
   final DateTime? startedAt;
+  final int recordingSeconds; // 已累计记录时长（不含暂停）
+  final DateTime? activeSince; // 当前记录段起始；暂停时为 null
 
-  const RecordState(this.status, this.points, this.meters, [this.startedAt]);
+  const RecordState(
+    this.status,
+    this.points,
+    this.meters, [
+    this.startedAt,
+    this.recordingSeconds = 0,
+    this.activeSince,
+  ]);
 
   static const idle = RecordState(RecordStatus.idle, [], 0);
 }
@@ -118,35 +133,45 @@ class RecordingNotifier extends Notifier<RecordState> {
     return RecordState.idle;
   }
 
-  /// 重进应用：会话文件有点即恢复（服务未运行视为暂停，可点"继续"接着记）。
+  /// 重进应用：会话文件有点即恢复。上次为记录中则直接继续记录（服务未运行则先恢复采样）。
   Future<void> _restore() async {
     final s = await LocationService.session();
-    if (s.points.isEmpty) return;
+    final wasRecording = s.state == '1';
+    if (s.points.isEmpty && !wasRecording) return;
     final pts = [for (final p in s.points) TrackPoint(p.latLng, p.time)];
-    _lastRawTime = s.points.last.time;
+    _lastRawTime = s.points.isEmpty ? null : s.points.last.time;
+    if (wasRecording && !s.running) {
+      await LocationService.resume();
+    }
     state = RecordState(
-      s.running && !s.paused ? RecordStatus.recording : RecordStatus.paused,
+      wasRecording ? RecordStatus.recording : RecordStatus.paused,
       pts,
       pathLengthM([for (final p in pts) p.latLng]),
       s.startAt,
+      s.activeMs ~/ 1000,
+      wasRecording ? (s.segmentStart ?? DateTime.now()) : null,
     );
     _sub ??= LocationService.rawPoints().listen(_onRaw);
   }
 
   Future<void> start() async {
     _sub ??= LocationService.rawPoints().listen(_onRaw);
-    state = RecordState(RecordStatus.recording, [], 0, DateTime.now());
+    state = RecordState(RecordStatus.recording, [], 0, DateTime.now(), 0, DateTime.now());
     await LocationService.start();
   }
 
   Future<void> pause() async {
     await LocationService.pause();
-    state = RecordState(RecordStatus.paused, state.points, state.meters, state.startedAt);
+    final last = state.activeSince ?? DateTime.now();
+    final secs = state.recordingSeconds + DateTime.now().difference(last).inSeconds;
+    state = RecordState(
+        RecordStatus.paused, state.points, state.meters, state.startedAt, secs, null);
   }
 
   Future<void> resume() async {
     await LocationService.resume();
-    state = RecordState(RecordStatus.recording, state.points, state.meters, state.startedAt);
+    state = RecordState(RecordStatus.recording, state.points, state.meters, state.startedAt,
+        state.recordingSeconds, DateTime.now());
   }
 
   /// 停止记录，返回全部采样点（会话清零）。
@@ -169,6 +194,8 @@ class RecordingNotifier extends Notifier<RecordState> {
       pts,
       pts.length < 2 ? 0 : state.meters + haversineM(pts[pts.length - 2].latLng, p.latLng),
       state.startedAt,
+      state.recordingSeconds,
+      state.activeSince,
     );
   }
 }

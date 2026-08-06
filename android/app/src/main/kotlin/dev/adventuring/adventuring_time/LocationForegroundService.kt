@@ -46,6 +46,10 @@ class LocationForegroundService : Service() {
         @Volatile
         private var sampling = false
 
+        /** 当前记录段起始时间（ms）：暂停/被杀后重新采样时重置，用于累计记录时长。 */
+        @Volatile
+        private var segmentStartMs = 0L
+
         @Volatile
         private var sink: EventChannel.EventSink? = null
 
@@ -62,13 +66,15 @@ class LocationForegroundService : Service() {
             }
         }
 
-        /** 会话快照：服务是否运行、是否暂停、开始时间（ms）、已采样点（读自落盘文件）。 */
+        /** 会话快照：运行状态、持久化状态（1 记录中/0 暂停）、开始时间、累计记录时长、当前段起始、采样点。 */
         fun sessionSnapshot(context: Context): Map<String, Any> {
-            val (state, startMs) = readState(context)
+            val (state, startMs, activeMs) = readState(context)
             return mapOf(
                 "running" to running,
-                "paused" to (running && !sampling),
+                "state" to state,
                 "startAt" to startMs,
+                "segmentStart" to segmentStartMs,
+                "activeMs" to activeMs,
                 "points" to readPoints(context),
             )
         }
@@ -85,19 +91,19 @@ class LocationForegroundService : Service() {
             File(context.filesDir, STATE_FILE).delete()
         }
 
-        /** 状态文件格式："state|startMs"，state 为 STATE_RECORDING / STATE_PAUSED。 */
-        fun writeState(context: Context, state: String, startMs: Long) {
-            File(context.filesDir, STATE_FILE).writeText("$state|$startMs")
+        /** 状态文件格式："state|startMs|activeMs"（activeMs=累计记录时长，暂停后不再增长）。 */
+        fun writeState(context: Context, state: String, startMs: Long, activeMs: Long) {
+            File(context.filesDir, STATE_FILE).writeText("$state|$startMs|$activeMs")
         }
 
-        fun readState(context: Context): Pair<String, Long> {
+        fun readState(context: Context): Triple<String, Long, Long> {
             val f = File(context.filesDir, STATE_FILE)
-            if (!f.exists()) return Pair(STATE_PAUSED, 0L)
+            if (!f.exists()) return Triple(STATE_PAUSED, 0L, 0L)
             val parts = f.readText().split('|')
             return if (parts.size >= 2) {
-                Pair(parts[0], parts[1].toLongOrNull() ?: 0L)
+                Triple(parts[0], parts[1].toLongOrNull() ?: 0L, parts.getOrNull(2)?.toLongOrNull() ?: 0L)
             } else {
-                Pair(STATE_PAUSED, 0L)
+                Triple(STATE_PAUSED, 0L, 0L)
             }
         }
 
@@ -171,29 +177,37 @@ class LocationForegroundService : Service() {
         running = true
         startForegroundCompat()
         // 被杀后系统重启：按上次状态恢复采样（记录中断续记）
-        if (readState(this).first == STATE_RECORDING) startUpdates()
+        if (readState(this).first == STATE_RECORDING) {
+            segmentStartMs = System.currentTimeMillis()
+            startUpdates()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_PAUSE -> {
-                val (_, startMs) = readState(this)
-                writeState(this, STATE_PAUSED, startMs)
+                val (state, startMs, activeMs) = readState(this)
+                val active = activeMs + if (segmentStartMs > 0) System.currentTimeMillis() - segmentStartMs else 0
+                segmentStartMs = 0
+                writeState(this, STATE_PAUSED, startMs, active)
                 stopUpdates()
             }
             ACTION_RESUME -> {
-                val (_, startMs) = readState(this)
-                writeState(this, STATE_RECORDING, startMs)
+                val (state, startMs, activeMs) = readState(this)
+                segmentStartMs = System.currentTimeMillis()
+                writeState(this, STATE_RECORDING, startMs, activeMs)
                 startUpdates()
             }
             ACTION_STOP -> {
                 stopUpdates()
+                segmentStartMs = 0
                 stopForegroundCompat()
                 stopSelf()
             }
             else -> { // ACTION_START：新会话，清空旧数据
                 deleteSession(this)
-                writeState(this, STATE_RECORDING, System.currentTimeMillis())
+                segmentStartMs = System.currentTimeMillis()
+                writeState(this, STATE_RECORDING, System.currentTimeMillis(), 0)
                 startUpdates()
             }
         }
