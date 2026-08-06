@@ -183,6 +183,10 @@ Future<String> _handleCommand(String? message) async {
         navKey.currentContext!,
         personId: personId,
         initialPos: LatLng(double.parse(params['lat']!), double.parse(params['lon']!)),
+        tripId: params['tripId'],
+        presetTime: params['presetTime'] == null
+            ? null
+            : DateTime.parse(params['presetTime']!),
       );
       if (form == null) return 'cancelled';
       final now = DateTime.now();

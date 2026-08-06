@@ -48,6 +48,7 @@ Future<WaypointForm?> showWaypointDialog(
   LatLng? initialPos,
   String? defaultName,
   String? tripId,
+  DateTime? presetTime,
 }) {
   return showDialog<WaypointForm>(
     context: context,
@@ -57,6 +58,7 @@ Future<WaypointForm?> showWaypointDialog(
       initialPos: initialPos,
       defaultName: defaultName,
       tripId: tripId,
+      presetTime: presetTime,
     ),
   );
 }
@@ -66,9 +68,17 @@ class _WaypointDialog extends ConsumerStatefulWidget {
   final Waypoint? existing;
   final LatLng? initialPos;
   final String? defaultName;
-  final String? tripId; // 编辑时当前所属行程（新建为 null）
+  final String? tripId; // 新建时预选的所属行程；编辑时当前所属行程
+  final DateTime? presetTime; // 新建时预填的到达时间
 
-  const _WaypointDialog({required this.personId, this.existing, this.initialPos, this.defaultName, this.tripId});
+  const _WaypointDialog({
+    required this.personId,
+    this.existing,
+    this.initialPos,
+    this.defaultName,
+    this.tripId,
+    this.presetTime,
+  });
 
   @override
   ConsumerState<_WaypointDialog> createState() => _WaypointDialogState();
@@ -89,11 +99,11 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
     final e = widget.existing;
     _name = TextEditingController(text: e?.name ?? widget.defaultName ?? '');
     _desc = TextEditingController(text: e?.desc ?? '');
-    _time = e?.time;
+    _time = e?.time ?? widget.presetTime;
     _precision = e?.timePrecision;
     _mediaId = e?.mediaId;
     _isEvent = e?.isEvent ?? false;
-    _tripId = e == null ? null : widget.tripId;
+    _tripId = widget.tripId;
     if (widget.existing == null && _name.text.isEmpty) {
       _reverseFill();
     }

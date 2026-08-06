@@ -55,7 +55,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   String _searchQ = '';
   bool _searching = false;
   String? _searchError;  final Map<String, List<LatLng>> _translateOrig = {};
-  Offset? _pendingTapPos; // 绘制模式的单击落点位置（抬起时加点，避免拖动地图误加）
+  String? _pendingTripId; // 添加地点模式的目标行程（从行程弹窗进入时预选）
   DiskCachedTileProvider? _tileProvider;
   final _polylineHit = ValueNotifier<LayerHitResult<String>?>(null);
 
@@ -86,8 +86,14 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     if (_mode != _EditMode.none) return;
     final key = r.hitValues.first;
     final parts = key.split('|');
-    if (parts.length != 2) return;
     final d = _personData();
+    if (parts.length == 2 && parts[0] == 'trip') {
+      // 行程连接线：打开行程弹窗
+      final t = d?.tripById(parts[1]);
+      if (t != null) _selectTrip(t, widget.personId);
+      return;
+    }
+    if (parts.length != 2) return;
     final p = d?.tripById(parts[0])?.gpx.pathById(parts[1]);
     if (p != null) _selectPath(p, parts[0], widget.personId);
   }
@@ -293,6 +299,17 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
         actions: () {
           return [
             ListTile(
+              leading: const Icon(Icons.add_location_alt_outlined),
+              title: const Text('添加地点'),
+              onTap: () {
+                _closeSheet();
+                setState(() {
+                  _pendingTripId = t.meta.id;
+                  _mode = _EditMode.addPlace;
+                });
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.edit_outlined),
               title: const Text('编辑行程'),
               onTap: () async {
@@ -328,15 +345,28 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     });
   }
 
-  /// 行程在地图上的锚点：路径首点 → 最早地点 → 起点长期地点。
+  /// 行程在地图上的锚点：优先取路径中点，其次首末地点中点，最后起点长期地点，
+  /// 尽量避开与地点（尤其长期地点）标记重合。
   LatLng? _tripAnchor(TripBundle t, List<Waypoint> allLife) {
     final g = t.gpx;
+    LatLng? mid(List<LatLng> pts) =>
+        pts.isEmpty ? null : pts[pts.length ~/ 2];
     for (final p in g.paths) {
-      if (p.points.isNotEmpty) return p.points.first.latLng;
+      if (p.points.length >= 2) {
+        final pts = [for (final pt in p.points) pt.latLng];
+        final m = mid(pts);
+        if (m != null) return m;
+      }
     }
     if (g.waypoints.isNotEmpty) {
       final wps = [...g.waypoints]..sort((a, b) =>
           (a.sortTime ?? a.createdAt).compareTo(b.sortTime ?? b.createdAt));
+      if (wps.length >= 2) {
+        return LatLng(
+          (wps.first.latLng.latitude + wps.last.latLng.latitude) / 2,
+          (wps.first.latLng.longitude + wps.last.latLng.longitude) / 2,
+        );
+      }
       return wps.first.latLng;
     }
     for (final e in allLife) {
@@ -390,14 +420,22 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   /// 落点新增：搜索得到的用搜索词作默认名称；对话框打开后异步反向地理编码填充。
   Future<void> _addWaypointAt(LatLng latlng, {String? defaultName}) async {
     if (!mounted) return;
+    final tripId = _pendingTripId;
     final form = await showWaypointDialog(
       context,
       personId: widget.personId,
       initialPos: latlng,
       defaultName: defaultName,
+      tripId: tripId,
+      presetTime: tripId == null ? null : _presetTripTime(_personData()?.tripById(tripId)),
     );
     if (form == null) {
-      if (mounted) setState(() => _mode = _EditMode.none);
+      if (mounted) {
+        setState(() {
+          _mode = _EditMode.none;
+          _pendingTripId = null;
+        });
+      }
       return;
     }
     final now = DateTime.now();
@@ -425,13 +463,35 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
         _mode = _EditMode.none;
         _searchResults = [];
         _searchQ = '';
+        _pendingTripId = null;
       });
     }
+  }
+
+  /// 行程添加地点时的预填时间：行程开始日期，其次最后一个地点/路径的时间。
+  DateTime? _presetTripTime(TripBundle? t) {
+    if (t == null) return null;
+    if (t.meta.startDate != null) return t.meta.startDate;
+    DateTime? last;
+    for (final w in t.gpx.waypoints) {
+      final tt = w.sortTime;
+      if (tt != null && (last == null || tt.isAfter(last))) last = tt;
+    }
+    for (final p in t.gpx.paths) {
+      final tt = p.points.firstOrNull?.time;
+      if (tt != null && (last == null || tt.isAfter(last))) last = tt;
+    }
+    return last;
   }
 
   void _addDraftFromScreen(Offset localPos) {
     final latlng = _mapCtrl.camera.screenOffsetToLatLng(localPos);
     setState(() => _draftPoints.add(latlng));
+  }
+
+  /// 绘制模式：点击被拖动/双击抢走时撤销误加的点。
+  void _undoDraftPoint() {
+    if (_draftPoints.isNotEmpty) setState(() => _draftPoints.removeLast());
   }
 
   Future<void> _finishDrawPath() async {
@@ -627,8 +687,8 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
           Positioned.fill(
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
-              onTapDown: (d) => _pendingTapPos = d.localPosition,
-              onTapUp: (_) => _addDraftFromScreen(_pendingTapPos!),
+              onTapDown: (d) => _addDraftFromScreen(d.localPosition),
+              onTapCancel: _undoDraftPoint,
               onDoubleTap: () => _finishDrawPath(),
             ),
           ),
@@ -757,19 +817,42 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
 
       if (toggles.lifePath) {
         final life = buildLifePath(d.life.events, d.trips);
-        personLayers.add(PolylineLayer(
-          polylines: [
-            for (final s in life.segs)
-              Polyline(
-                points: [s.from, s.to],
-                strokeWidth: s.recorded ? 2.5 : 2,
-                color: const Color(0xFFB71C1C),
-                pattern: s.recorded
-                    ? const StrokePattern.solid()
-                    : StrokePattern.dashed(segments: const [8, 6]),
-              ),
-          ],
-        ));
+        final tripSegs = <Polyline<String>>[];
+        final otherSegs = <Polyline>[];
+        for (final s in life.segs) {
+          final line = Polyline(
+            points: [s.from, s.to],
+            strokeWidth: s.recorded ? 2.5 : 2,
+            color: const Color(0xFFB71C1C),
+            pattern: s.recorded
+                ? const StrokePattern.solid()
+                : StrokePattern.dashed(segments: const [8, 6]),
+          );
+          if (s.tripId != null) {
+            tripSegs.add(Polyline<String>(
+              points: [s.from, s.to],
+              strokeWidth: s.recorded ? 2.5 : 2,
+              color: const Color(0xFFB71C1C),
+              pattern: s.recorded
+                  ? const StrokePattern.solid()
+                  : StrokePattern.dashed(segments: const [8, 6]),
+              hitValue: 'trip|${s.tripId}',
+            ));
+          } else {
+            otherSegs.add(line);
+          }
+        }
+        if (otherSegs.isNotEmpty) {
+          personLayers.add(PolylineLayer(polylines: otherSegs));
+        }
+        if (tripSegs.isNotEmpty) {
+          // 行程段可点击：点开行程弹窗
+          personLayers.add(PolylineLayer(
+            polylines: tripSegs,
+            hitNotifier: _polylineHit,
+            minimumHitbox: 10,
+          ));
+        }
       }
 
       layers.addAll(personLayers);

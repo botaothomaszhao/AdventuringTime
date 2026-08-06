@@ -29,12 +29,14 @@ double pathLengthM(List<LatLng> pts) {
 }
 
 /// 一个轨迹线段：recorded=true 为实际记录段（实线），false 为推算直线段（虚线）。
+/// tripId 非空时该段属于行程（可点击打开行程弹窗）。
 class LifeSeg {
   final LatLng from;
   final LatLng to;
   final bool recorded;
+  final String? tripId;
 
-  const LifeSeg(this.from, this.to, this.recorded);
+  const LifeSeg(this.from, this.to, this.recorded, [this.tripId]);
 }
 
 /// 人生轨迹线计算结果。
@@ -97,10 +99,10 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
       final pp = _pathPoints(pth);
       if (pp.isEmpty) continue;
       if (prevEnd != null) {
-        itemSegs.add(LifeSeg(prevEnd, pp.first, false)); // 路径间隔：推算直线段
+        itemSegs.add(LifeSeg(prevEnd, pp.first, false, t.meta.id)); // 路径间隔：推算直线段
       }
       for (var i = 1; i < pp.length; i++) {
-        itemSegs.add(LifeSeg(pp[i - 1], pp[i], true)); // 实际记录段
+        itemSegs.add(LifeSeg(pp[i - 1], pp[i], true, t.meta.id)); // 实际记录段
       }
       prevEnd = pp.last;
     }
@@ -114,7 +116,7 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
         });
       LatLng? prev;
       for (final w in wps) {
-        if (prev != null) itemSegs.add(LifeSeg(prev, w.latLng, false));
+        if (prev != null) itemSegs.add(LifeSeg(prev, w.latLng, false, t.meta.id));
         prev = w.latLng;
       }
       first = wps.isEmpty ? null : wps.first.latLng;
@@ -125,7 +127,7 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
       final s = findWp(t.meta.startEventId);
       final e = findWp(t.meta.endEventId);
       if (s != null && e != null) {
-        itemSegs.add(LifeSeg(s.latLng, e.latLng, false));
+        itemSegs.add(LifeSeg(s.latLng, e.latLng, false, t.meta.id));
         first = s.latLng;
         last = e.latLng;
       } else if (s != null) {
