@@ -226,11 +226,6 @@ Future<String> _handleCommand(String? message) async {
       // 直接导航（绕开 driver tap 的 Windows idle 问题）
       navKey.currentState?.pushNamed(params['route'] ?? '/');
       return 'ok';
-    case 'switchTab':
-      // 切换底部 Tab（0=地图 1=时间线 2=统计）
-      final controller = DefaultTabController.of(navKey.currentContext!);
-      controller.animateTo(int.parse(params['index'] ?? '0'));
-      return 'ok';
     case 'debugAnchor':
       // 检查行程 flag 锚点状态（验证渲染用）
       final d = notifier.d;

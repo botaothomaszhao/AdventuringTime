@@ -111,6 +111,73 @@ void main() {
       expect(r.segs.firstWhere((s) => !s.recorded).to, const LatLng(0, 2));
     });
 
+    test('行程内地点与路径按时间混合相连并连回终点', () {
+      final start = ev('s', DateTime.utc(2000, 1, 1), const LatLng(0, 0));
+      final end = ev('e', DateTime.utc(2010, 1, 1), const LatLng(5, 0));
+      final t = TripBundle(
+        meta: Trip(
+          id: 't',
+          name: 't',
+          startDate: DateTime.utc(2005, 1, 1),
+          startEventId: start.id,
+          endEventId: end.id,
+          createdAt: DateTime.utc(2005, 1, 1),
+          updatedAt: DateTime.utc(2005, 1, 1),
+        ),
+        gpx: GpxFile(
+          waypoints: [
+            Waypoint(
+              id: 'w2',
+              name: 'w2',
+              latLng: const LatLng(2, 0),
+              time: DateTime.utc(2005, 1, 3),
+              createdAt: DateTime.utc(2005, 1, 1),
+              updatedAt: DateTime.utc(2005, 1, 1),
+            ),
+            Waypoint(
+              id: 'w1',
+              name: 'w1',
+              latLng: const LatLng(1, 0),
+              time: DateTime.utc(2005, 1, 2),
+              createdAt: DateTime.utc(2005, 1, 1),
+              updatedAt: DateTime.utc(2005, 1, 1),
+            ),
+          ],
+          paths: [
+            PathData(
+              id: 'p1',
+              name: 'p1',
+              isGps: false,
+              points: [
+                TrackPoint(const LatLng(3, 0), DateTime.utc(2005, 1, 4)),
+                TrackPoint(const LatLng(4, 0), DateTime.utc(2005, 1, 4)),
+              ],
+              createdAt: DateTime.utc(2005, 1, 1),
+              updatedAt: DateTime.utc(2005, 1, 1),
+            ),
+          ],
+        ),
+      );
+      final r = buildLifePath([start, end], [t]);
+      final tripSegs = r.segs.where((s) => s.tripId == 't').toList();
+      // 起点(2005-1-1前) → w1(1-2) → w2(1-3) → p1(1-4)实线 → 终点
+      // 顺序断言：按 from 坐标 (0,0)→(1,0)→(2,0)→(3,0)→(4,0)→(5,0)
+      expect(tripSegs.length, greaterThanOrEqualTo(5));
+      expect(tripSegs.first.from, const LatLng(0, 0));
+      expect(tripSegs.last.to, const LatLng(5, 0));
+      // 路径内部为实线，其余为虚线
+      expect(tripSegs.where((s) => s.recorded), hasLength(1));
+      final pts = [for (final s in tripSegs) s.from, tripSegs.last.to];
+      expect(pts, [
+        const LatLng(0, 0),
+        const LatLng(1, 0),
+        const LatLng(2, 0),
+        const LatLng(3, 0),
+        const LatLng(4, 0),
+        const LatLng(5, 0),
+      ]);
+    });
+
     test('行程无路径仅地点：按到达时间生成连线', () {
       final t = TripBundle(
         meta: Trip(

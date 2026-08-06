@@ -53,13 +53,14 @@ List<LatLng> _pathPoints(PathData p) => [for (final pt in p.points) pt.latLng];
 
 /// 构建人生轨迹线：全部长期地点 + 全部行程按时间排序，相邻项连接，
 /// 实线=实际记录段，虚线=推算直线段。统计实/虚里程。
-/// 行程若无路径但只有地点（含起终点长期地点引用）时，也按时间顺序生成连线。
+/// 行程内部：路径、地点、起点长期地点按时间顺序相连，最后连回终点长期地点。
+/// 相邻项连接段归属行程时（任一端为行程）标行程 id，供地图点击打开行程。
 LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
   final segs = <LifeSeg>[];
 
-  void add(LatLng a, LatLng b, bool rec) {
+  void add(LatLng a, LatLng b, bool rec, [String? tripId]) {
     if (a == b) return;
-    segs.add(LifeSeg(a, b, rec));
+    segs.add(LifeSeg(a, b, rec, tripId));
   }
 
   // 按 id 查找长期地点（事件列表 + 各行程内），用于起终点引用
@@ -88,62 +89,57 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
   }
   for (final t in trips) {
     final itemSegs = <LifeSeg>[];
-    // 各路径按内部首点时间排序（无时间的 rte 按 createdAt 排后面）
-    final ordered = [...t.gpx.paths]..sort((a, b) {
-        final at = a.points.firstOrNull?.time ?? a.createdAt;
-        final bt = b.points.firstOrNull?.time ?? b.createdAt;
-        return at.compareTo(bt);
-      });
-    LatLng? prevEnd;
-    for (final pth in ordered) {
-      final pp = _pathPoints(pth);
-      if (pp.isEmpty) continue;
-      if (prevEnd != null) {
-        itemSegs.add(LifeSeg(prevEnd, pp.first, false, t.meta.id)); // 路径间隔：推算直线段
-      }
-      for (var i = 1; i < pp.length; i++) {
-        itemSegs.add(LifeSeg(pp[i - 1], pp[i], true, t.meta.id)); // 实际记录段
-      }
-      prevEnd = pp.last;
+    final startWp = findWp(t.meta.startEventId);
+    final endWp = findWp(t.meta.endEventId);
+    // 行程内节点：路径（首点时间或创建时间）、地点（到达时间）、起点长期地点（最早时间）
+    final nodes = <({DateTime time, PathData? path, LatLng point})>[];
+    for (final p in t.gpx.paths) {
+      if (p.points.isEmpty) continue;
+      nodes.add((time: p.points.first.time ?? p.createdAt, path: p, point: p.points.first.latLng));
     }
-    LatLng? first = itemSegs.isEmpty ? null : itemSegs.first.from;
-    LatLng? last = itemSegs.isEmpty ? null : itemSegs.last.to;
-    // 无路径：仅有地点时按到达时间连线
-    if (first == null) {
-      final wps = [...t.gpx.waypoints]..sort((a, b) {
-          final c = (a.sortTime ?? a.createdAt).compareTo(b.sortTime ?? b.createdAt);
-          return c != 0 ? c : a.createdAt.compareTo(b.createdAt);
-        });
-      LatLng? prev;
-      for (final w in wps) {
-        if (prev != null) itemSegs.add(LifeSeg(prev, w.latLng, false, t.meta.id));
-        prev = w.latLng;
-      }
-      first = wps.isEmpty ? null : wps.first.latLng;
-      last = wps.isEmpty ? null : wps.last.latLng;
+    for (final w in t.gpx.waypoints) {
+      nodes.add((time: w.sortTime ?? w.createdAt, path: null, point: w.latLng));
     }
-    // 仍无实体：用选择的起终点长期地点连成一段
-    if (first == null) {
-      final s = findWp(t.meta.startEventId);
-      final e = findWp(t.meta.endEventId);
-      if (s != null && e != null) {
-        itemSegs.add(LifeSeg(s.latLng, e.latLng, false, t.meta.id));
-        first = s.latLng;
-        last = e.latLng;
-      } else if (s != null) {
-        first = s.latLng;
-        last = s.latLng;
-      } else if (e != null) {
-        first = e.latLng;
-        last = e.latLng;
+    if (startWp != null) {
+      var earliest = nodes.isEmpty ? t.meta.startDate ?? t.meta.createdAt : nodes.first.time;
+      for (final n in nodes) {
+        if (n.time.isBefore(earliest)) earliest = n.time;
+      }
+      nodes.add((
+        time: earliest.subtract(const Duration(seconds: 1)),
+        path: null,
+        point: startWp.latLng,
+      ));
+    }
+    nodes.sort((a, b) => a.time.compareTo(b.time));
+    // 按时间顺序连接：路径内部实线，节点之间虚线
+    LatLng? prev;
+    for (final n in nodes) {
+      final p = n.path;
+      if (p != null) {
+        if (prev != null) itemSegs.add(LifeSeg(prev, p.points.first.latLng, false, t.meta.id));
+        for (var i = 1; i < p.points.length; i++) {
+          itemSegs.add(LifeSeg(p.points[i - 1].latLng, p.points[i].latLng, true, t.meta.id));
+        }
+        prev = p.points.last.latLng;
+      } else {
+        if (prev != null) itemSegs.add(LifeSeg(prev, n.point, false, t.meta.id));
+        prev = n.point;
       }
     }
+    // 最后连回终点长期地点
+    if (endWp != null && prev != null) {
+      itemSegs.add(LifeSeg(prev, endWp.latLng, false, t.meta.id));
+    }
+    final first = itemSegs.isEmpty ? startWp?.latLng : itemSegs.first.from;
+    final last = endWp?.latLng ?? (itemSegs.isEmpty ? startWp?.latLng : itemSegs.last.to);
     items.add(_LifeItem(
       time: t.meta.startDate ?? t.meta.createdAt,
       created: t.meta.createdAt,
       first: first,
       last: last,
       segs: itemSegs,
+      tripId: t.meta.id,
     ));
   }
 
@@ -152,12 +148,12 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
     return c != 0 ? c : a.created.compareTo(b.created);
   });
 
-  // 相邻项连接（推算直线段）
+  // 相邻项连接（推算直线段）：任一端是行程时该段归属行程（可点击打开行程）
   for (var i = 0; i + 1 < items.length; i++) {
     final a = items[i];
     final b = items[i + 1];
     if (a.last == null || b.first == null) continue;
-    add(a.last!, b.first!, false);
+    add(a.last!, b.first!, false, b.tripId ?? a.tripId);
   }
 
   // 收集所有段并统计
@@ -183,6 +179,7 @@ class _LifeItem {
   final LatLng? first;
   final LatLng? last;
   final List<LifeSeg> segs;
+  final String? tripId; // 行程 item 的 id（长期地点为 null）
 
   _LifeItem({
     required this.time,
@@ -190,6 +187,7 @@ class _LifeItem {
     required this.first,
     required this.last,
     this.segs = const [],
+    this.tripId,
   });
 }
 

@@ -57,7 +57,10 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   String? _searchError;  final Map<String, List<LatLng>> _translateOrig = {};
   String? _pendingTripId; // 添加地点模式的目标行程（从行程弹窗进入时预选）
   DiskCachedTileProvider? _tileProvider;
-  final _polylineHit = ValueNotifier<LayerHitResult<String>?>(null);
+  final _pathHit = ValueNotifier<LayerHitResult<String>?>(null); // 路径层命中
+  final _tripHit = ValueNotifier<LayerHitResult<String>?>(null); // 行程连接线层命中
+  String? _hoveredPath; // 鼠标悬浮命中的路径（仅记录，点击才打开）
+  String? _hoveredTrip; // 鼠标悬浮命中的行程连接线（仅记录，点击才打开）
 
   static const _palette = [
     Color(0xFF2E7D32), Color(0xFFC62828), Color(0xFF1565C0),
@@ -71,43 +74,55 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   void initState() {
     super.initState();
     _initTileProvider();
-    _polylineHit.addListener(_onPolylineHit);
+    _pathHit.addListener(_onPathHit);
+    _tripHit.addListener(_onTripHit);
   }
 
   @override
   void dispose() {
-    _polylineHit.dispose();
+    _pathHit.dispose();
+    _tripHit.dispose();
     super.dispose();
   }
 
-  String? _hoveredHit; // 鼠标悬浮命中的线（仅记录，点击才打开）
-
   /// hover 只记录命中的线，不弹卡；点击时由 _onTap 打开。
-  void _onPolylineHit() {
-    final r = _polylineHit.value;
-    if (r == null || r.hitValues.isEmpty) {
-      _hoveredHit = null;
-      return;
+  void _onPathHit() {
+    final r = _pathHit.value;
+    if (_mode != _EditMode.none || r == null || r.hitValues.isEmpty) {
+      _hoveredPath = null;
+    } else {
+      _hoveredPath = r.hitValues.first;
     }
-    if (_mode != _EditMode.none) {
-      _hoveredHit = null;
-      return;
-    }
-    _hoveredHit = r.hitValues.first;
   }
 
-  /// 打开悬停命中的实体（行程连接线或路径）。
-  void _openHovered() {
-    final key = _hoveredHit;
-    _hoveredHit = null;
-    if (key == null) return;
-    final parts = key.split('|');
-    final d = _personData();
-    if (parts.length == 2 && parts[0] == 'trip') {
-      final t = d?.tripById(parts[1]);
-      if (t != null) _selectTrip(t, widget.personId);
-      return;
+  void _onTripHit() {
+    final r = _tripHit.value;
+    if (_mode != _EditMode.none || r == null || r.hitValues.isEmpty) {
+      _hoveredTrip = null;
+    } else {
+      _hoveredTrip = r.hitValues.first;
     }
+  }
+
+  /// 打开悬停命中的实体（行程连接线优先，其次路径）。
+  void _openHovered() {
+    final d = _personData();
+    final tripKey = _hoveredTrip;
+    _hoveredTrip = null;
+    if (tripKey != null) {
+      final parts = tripKey.split('|');
+      if (parts.length == 2 && parts[0] == 'trip') {
+        final t = d?.tripById(parts[1]);
+        if (t != null) {
+          _selectTrip(t, widget.personId);
+          return;
+        }
+      }
+    }
+    final pathKey = _hoveredPath;
+    _hoveredPath = null;
+    if (pathKey == null) return;
+    final parts = pathKey.split('|');
     if (parts.length != 2) return;
     final p = d?.tripById(parts[0])?.gpx.pathById(parts[1]);
     if (p != null) _selectPath(p, parts[0], widget.personId);
@@ -431,13 +446,14 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   void _onTap(TapPosition pos, LatLng latlng) {
     switch (_mode) {
       case _EditMode.none:
-        if (_hoveredHit != null) {
+        if (_hoveredTrip != null || _hoveredPath != null) {
           // 悬浮在连接线/路径上时点击 → 打开对应实体
           _openHovered();
         } else {
           setState(() {
             _selected = null;
-            _hoveredHit = null;
+            _hoveredTrip = null;
+            _hoveredPath = null;
           });
         }
       case _EditMode.addPlace:
@@ -715,6 +731,18 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
               tileProvider: _tileProvider ?? CancellableNetworkTileProvider(),
             ),
             ..._buildLayers(people, containers),
+            // 绘制模式预览线（必须在 FlutterMap 内，依赖 MapCamera；空点不渲染）
+            if (_mode == _EditMode.drawPath && _draftPoints.isNotEmpty)
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: _draftPoints,
+                    strokeWidth: 3,
+                    color: Colors.orange,
+                    pattern: StrokePattern.dashed(segments: const [8, 6]),
+                  ),
+                ],
+              ),
           ],
         ),
         if (_mode == _EditMode.drawPath)
@@ -730,21 +758,6 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
             behavior: HitTestBehavior.translucent,
             onPointerMove: (e) => _applyTranslate(e.localDelta),
             child: const SizedBox.expand(),
-          ),
-        if (_mode == _EditMode.drawPath)
-          Positioned.fill(
-            child: IgnorePointer(
-              child: PolylineLayer(
-                polylines: [
-                  Polyline(
-                    points: _draftPoints,
-                    strokeWidth: 3,
-                    color: Colors.orange,
-                    pattern: StrokePattern.dashed(segments: const [8, 6]),
-                  ),
-                ],
-              ),
-            ),
           ),
         if (_mode != _EditMode.none) _buildModeBanner(),
         _buildSearchBar(),
@@ -815,7 +828,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
           }
           personLayers.add(PolylineLayer(
             polylines: polylines,
-            hitNotifier: _polylineHit,
+            hitNotifier: _pathHit,
             minimumHitbox: 10,
           ));
         }
@@ -884,7 +897,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
           // 行程段可点击：点开行程弹窗
           personLayers.add(PolylineLayer(
             polylines: tripSegs,
-            hitNotifier: _polylineHit,
+            hitNotifier: _tripHit,
             minimumHitbox: 10,
           ));
         }
