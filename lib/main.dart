@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'views/people_page.dart';
 import 'views/person_shell.dart';
 import 'views/settings_page.dart';
 import 'views/trip_detail_page.dart';
@@ -30,15 +29,9 @@ class AdventuringTimeApp extends StatelessWidget {
 /// 路由生成（App 与测试入口共用）。
 Route<dynamic> generateRoute(RouteSettings settings) {
   final segs = settings.name == '/' ? <String>[] : settings.name!.split('/').where((s) => s.isNotEmpty).toList();
-  Widget page = const PeoplePage();
+  Widget page = const PersonHome();
   if (segs.isEmpty) {
-    page = const PeoplePage();
-  } else if (segs.length == 3 && segs[0] == 'person' && segs[2] == 'map') {
-    page = PersonShell(personId: segs[1], initialTab: 0);
-  } else if (segs.length == 3 && segs[0] == 'person' && segs[2] == 'timeline') {
-    page = PersonShell(personId: segs[1], initialTab: 1);
-  } else if (segs.length == 3 && segs[0] == 'person' && segs[2] == 'stats') {
-    page = PersonShell(personId: segs[1], initialTab: 2);
+    page = const PersonHome();
   } else if (segs.length == 4 && segs[0] == 'person' && segs[2] == 'trip') {
     page = TripDetailPage(personId: segs[1], tripId: segs[3]);
   } else if (segs.length == 1 && segs[0] == 'settings') {

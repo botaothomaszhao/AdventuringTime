@@ -14,6 +14,26 @@ final dataRootProvider = FutureProvider<Directory>((ref) => resolveDataRoot());
 
 final peopleProvider = AsyncNotifierProvider<PeopleNotifier, List<Person>>(PeopleNotifier.new);
 
+/// 当前操作人物：无人生成时自动取第一个；删除/无匹配时自动切换到第一个。
+final currentPersonIdProvider =
+    NotifierProvider<CurrentPersonIdNotifier, String?>(CurrentPersonIdNotifier.new);
+
+class CurrentPersonIdNotifier extends Notifier<String?> {
+  @override
+  String? build() {
+    ref.listen(peopleProvider, (prev, next) {
+      final list = next.valueOrNull ?? const <Person>[];
+      final cur = state;
+      if (cur == null || !list.any((p) => p.id == cur)) {
+        state = list.isEmpty ? null : list.first.id;
+      }
+    });
+    return null;
+  }
+
+  void select(String? id) => state = id;
+}
+
 class PeopleNotifier extends AsyncNotifier<List<Person>> {
   Future<AppRepository> _repo() async {
     final root = await ref.read(dataRootProvider.future);

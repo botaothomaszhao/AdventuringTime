@@ -556,6 +556,7 @@ class _TripDialogState extends ConsumerState<_TripDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
+              key: const ValueKey('trip-name'),
               controller: _name,
               decoration: const InputDecoration(labelText: '名称', border: OutlineInputBorder()),
             ),
@@ -692,6 +693,7 @@ class _PersonDialogState extends State<_PersonDialog> {
         mainAxisSize: MainAxisSize.min,
         children: [
           TextField(
+            key: const ValueKey('person-name'),
             controller: _name,
             decoration: const InputDecoration(labelText: '姓名', border: OutlineInputBorder()),
           ),

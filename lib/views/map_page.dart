@@ -27,13 +27,13 @@ class MapPage extends ConsumerStatefulWidget {
   ConsumerState<MapPage> createState() => _MapPageState();
 }
 
-enum _EditMode { none, addPlace, addEvent, drawPath, editPath, translatePath }
+enum _EditMode { none, addPlace, drawPath, editPath, translatePath }
 
 class _LayerToggles {
   bool places = true;
   bool events = true;
   bool paths = true;
-  bool lifePath = false;
+  bool lifePath = true;
 }
 
 class _Selected {
@@ -44,7 +44,7 @@ class _Selected {
   const _Selected({required this.label, this.detail, this.time, required this.actions});
 }
 
-class _MapPageState extends ConsumerState<MapPage> {
+class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClientMixin {
   final MapController _mapCtrl = MapController();
   final Map<String, _LayerToggles> _toggles = {};
   _EditMode _mode = _EditMode.none;
@@ -65,7 +65,8 @@ class _MapPageState extends ConsumerState<MapPage> {
     Color(0xFF6A1B9A), Color(0xFFEF6C00), Color(0xFF00838F),
   ];
 
-  List<Person> _visiblePeople = const [];
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -128,19 +129,15 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   (List<Person>, List<(String?, GpxFile)>) _peopleData() {
     final all = ref.watch(peopleProvider).maybeWhen(data: (l) => l, orElse: () => <Person>[]);
-    final ids = _visiblePeople.isEmpty
-        ? [widget.personId]
-        : [for (final p in _visiblePeople) p.id];
+    final people = all.where((p) => p.id == widget.personId).toList();
     final containers = <(String?, GpxFile)>[];
-    for (final id in ids) {
-      final d = ref.watch(personDataProvider(id)).maybeWhen(data: (d) => d, orElse: () => null);
-      if (d == null) continue;
+    final d = ref.watch(personDataProvider(widget.personId)).maybeWhen(data: (d) => d, orElse: () => null);
+    if (d != null) {
       for (final t in d.trips) {
         containers.add((t.meta.id, t.gpx));
       }
       containers.add((null, d.life));
     }
-    final people = all.where((p) => ids.contains(p.id)).toList();
     return (people, containers);
   }
 
@@ -319,8 +316,7 @@ class _MapPageState extends ConsumerState<MapPage> {
       case _EditMode.none:
         setState(() => _selected = null);
       case _EditMode.addPlace:
-      case _EditMode.addEvent:
-        _addWaypointAt(latlng, isEvent: _mode == _EditMode.addEvent);
+        _addWaypointAt(latlng);
       case _EditMode.drawPath:
         break; // 绘制模式下由外层 GestureDetector 处理（支持双击结束）
       case _EditMode.editPath:
@@ -330,7 +326,7 @@ class _MapPageState extends ConsumerState<MapPage> {
     }
   }
 
-  Future<void> _addWaypointAt(LatLng latlng, {required bool isEvent}) async {
+  Future<void> _addWaypointAt(LatLng latlng) async {
     final form = await showWaypointDialog(context, personId: widget.personId, initialPos: latlng);
     if (form == null) {
       if (mounted) setState(() => _mode = _EditMode.none);
@@ -344,7 +340,7 @@ class _MapPageState extends ConsumerState<MapPage> {
       latLng: latlng,
       time: form.time,
       timePrecision: form.precision,
-      isEvent: form.isEvent || isEvent,
+      isEvent: form.isEvent,
       fromName: form.fromName,
       fromLatLng: form.fromLatLng,
       mediaId: form.mediaId,
@@ -500,7 +496,7 @@ class _MapPageState extends ConsumerState<MapPage> {
   void _gotoResult(GeoResult r) {
     final latlng = LatLng(r.lat, r.lon);
     _mapCtrl.move(latlng, 14);
-    _addWaypointAt(latlng, isEvent: false);
+    _addWaypointAt(latlng);
     setState(() {
       _showSearch = false;
       _searchResults = [];
@@ -512,12 +508,13 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     ref.listen(mapPageActionProvider(widget.personId), (prev, next) {
       if (prev == null) return;
       if (next.requestId > prev.requestId && next.focus != null) {
         _mapCtrl.move(next.focus!, 12);
-      } else if (next.requestId > prev.requestId) {
-        _startAddTrip();
+      } else if (next.requestId > prev.requestId && next.showLayers) {
+        _showLayerPanel();
       }
     });
 
@@ -751,8 +748,7 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   Widget _buildModeBanner() {
     final msg = switch (_mode) {
-      _EditMode.addPlace => '点击地图放置地点',
-      _EditMode.addEvent => '点击地图放置事件',
+      _EditMode.addPlace => '点击地图放置地点（可在对话框中勾选"作为生活事件"）',
       _EditMode.drawPath => '点击落点，双击结束（${_draftPoints.length} 点）',
       _EditMode.editPath => '拖动顶点、点顶点删除、点空心圆插入',
       _EditMode.translatePath => '拖动整条路径',
@@ -859,11 +855,6 @@ class _MapPageState extends ConsumerState<MapPage> {
         onPressed: () => setState(() => _mode = _EditMode.addPlace),
       ),
       IconButton(
-        icon: const Icon(Icons.star_outline),
-        tooltip: '添加事件',
-        onPressed: () => setState(() => _mode = _EditMode.addEvent),
-      ),
-      IconButton(
         icon: const Icon(Icons.timeline),
         tooltip: '绘制路径',
         onPressed: () => setState(() {
@@ -872,9 +863,9 @@ class _MapPageState extends ConsumerState<MapPage> {
         }),
       ),
       IconButton(
-        icon: const Icon(Icons.layers_outlined),
-        tooltip: '图层开关',
-        onPressed: _showLayerPanel,
+        icon: const Icon(Icons.luggage_outlined),
+        tooltip: '新建行程',
+        onPressed: _startAddTrip,
       ),
       IconButton(
         icon: const Icon(Icons.search),
@@ -963,8 +954,6 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   void _showLayerPanel() {
     final current = _togglesOf(widget.personId);
-    final people = ref.watch(peopleProvider).maybeWhen(data: (l) => l, orElse: () => <Person>[]);
-    final me = people.firstWhere((p) => p.id == widget.personId, orElse: () => people.isEmpty ? Person(id: '', name: '', createdAt: DateTime.now(), updatedAt: DateTime.now()) : people.first);
     showModalBottomSheet(
       context: context,
       builder: (c) => StatefulBuilder(
@@ -972,9 +961,9 @@ class _MapPageState extends ConsumerState<MapPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text('图层（${me.name}）', style: const TextStyle(fontWeight: FontWeight.bold)),
+              const Padding(
+                padding: EdgeInsets.all(12),
+                child: Text('图层', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
               SwitchListTile(
                 title: const Text('地点'),
@@ -1012,36 +1001,6 @@ class _MapPageState extends ConsumerState<MapPage> {
                   setState(() {});
                 },
               ),
-              const Divider(),
-              if (people.length > 1)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Wrap(
-                      spacing: 6,
-                      children: [
-                        for (final p in people)
-                          FilterChip(
-                            label: Text(p.name),
-                            selected: _visiblePeople.any((v) => v.id == p.id) ||
-                                (p.id == widget.personId && _visiblePeople.isEmpty),
-                            onSelected: (on) {
-                              setSheet(() {
-                                if (on) {
-                                  if (!_visiblePeople.any((v) => v.id == p.id)) {
-                                    _visiblePeople = [..._visiblePeople, p];
-                                  }
-                                } else {
-                                  _visiblePeople = _visiblePeople.where((v) => v.id != p.id).toList();
-                                }
-                              });
-                            },
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
               const SizedBox(height: 8),
             ],
           ),
