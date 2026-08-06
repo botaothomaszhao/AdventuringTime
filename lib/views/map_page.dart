@@ -324,18 +324,14 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     }
   }
 
-  /// 落点新增：搜索得到的用搜索词作默认名称，否则反向地理编码取地址。
+  /// 落点新增：搜索得到的用搜索词作默认名称；对话框打开后异步反向地理编码填充。
   Future<void> _addWaypointAt(LatLng latlng, {String? defaultName}) async {
-    var name = defaultName;
-    if (name == null || name.isEmpty) {
-      name = await reverseAddress(latlng.latitude, latlng.longitude);
-    }
     if (!mounted) return;
     final form = await showWaypointDialog(
       context,
       personId: widget.personId,
       initialPos: latlng,
-      defaultName: name,
+      defaultName: defaultName,
     );
     if (form == null) {
       if (mounted) setState(() => _mode = _EditMode.none);
@@ -851,6 +847,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
                     ),
                   ),
                   IconButton(
+                    key: const ValueKey('search-btn'),
                     onPressed: _doSearch,
                     icon: _searching
                         ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
@@ -877,8 +874,22 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
             if (_searchResults.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                child: Text('结果已用数字标注在地图上，点击数字选点',
+                child: Text('结果已用数字标注在地图上，点击数字或下方列表选点',
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+              ),
+            for (final r in _searchResults)
+              ListTile(
+                dense: true,
+                leading: CircleAvatar(
+                  radius: 11,
+                  backgroundColor: const Color(0xFFD84315),
+                  child: Text(
+                    '${_searchResults.indexOf(r) + 1}',
+                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                title: Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                onTap: () => _gotoResult(r),
               ),
           ],
         ),

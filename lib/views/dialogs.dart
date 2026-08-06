@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../geo_search.dart';
 import '../lifecycle.dart';
 import '../models.dart';
 import '../providers.dart';
@@ -96,6 +97,21 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
     _fromLatLng = e?.fromLatLng;
     _mediaId = e?.mediaId;
     _isEvent = e?.isEvent ?? false;
+    if (widget.existing == null && _name.text.isEmpty) {
+      _reverseFill();
+    }
+  }
+
+  /// 新建且无默认名称时，异步反向地理编码填充名称（请求期间不阻塞弹窗）。
+  Future<void> _reverseFill() async {
+    final pos = widget.initialPos;
+    if (pos == null) return;
+    final addr = await reverseAddress(pos.latitude, pos.longitude);
+    if (addr == null || addr.isEmpty || !mounted) return;
+    if (_name.text.isEmpty) {
+      _name.text = addr;
+      setState(() {});
+    }
   }
 
   @override
