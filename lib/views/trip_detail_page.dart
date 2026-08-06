@@ -84,11 +84,7 @@ class TripDetailPage extends ConsumerWidget {
                 Center(
                   child: MediaImage(personId: personId, mediaId: trip.meta.cover, width: 200, height: 140),
                 ),
-              if (trip.meta.description != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text(trip.meta.description!),
-                ),
+              _EditableDesc(personId: personId, tripId: tripId, desc: trip.meta.description),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -205,5 +201,88 @@ class TripDetailPage extends ConsumerWidget {
       return a.date == '未标日期' ? 1 : (b.date == '未标日期' ? -1 : a.date.compareTo(b.date));
     });
     return out;
+  }
+}
+
+/// 说明内联编辑：点击显示区直接进入编辑，保存后落盘。
+class _EditableDesc extends ConsumerStatefulWidget {
+  final String personId;
+  final String tripId;
+  final String? desc;
+
+  const _EditableDesc({required this.personId, required this.tripId, this.desc});
+
+  @override
+  ConsumerState<_EditableDesc> createState() => _EditableDescState();
+}
+
+class _EditableDescState extends ConsumerState<_EditableDesc> {
+  late final TextEditingController _c;
+  bool _editing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = TextEditingController(text: widget.desc ?? '');
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final d = ref.read(personDataProvider(widget.personId)).valueOrNull;
+    final t = d?.tripById(widget.tripId);
+    if (t == null) return;
+    final meta = t.meta;
+    meta.description = _c.text.trim().isEmpty ? null : _c.text.trim();
+    meta.updatedAt = DateTime.now();
+    await ref.read(personDataProvider(widget.personId).notifier).saveTripMeta(meta);
+    setState(() => _editing = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_editing) {
+      return InkWell(
+        onTap: () => setState(() => _editing = true),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text(
+            _c.text.isEmpty ? '添加说明…' : _c.text,
+            style: _c.text.isEmpty
+                ? TextStyle(color: Colors.grey.shade500, fontStyle: FontStyle.italic)
+                : null,
+          ),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _c,
+              autofocus: true,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                isDense: true,
+                hintText: '说明',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.check),
+            tooltip: '保存说明',
+            onPressed: _save,
+          ),
+        ],
+      ),
+    );
   }
 }

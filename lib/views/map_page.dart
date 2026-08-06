@@ -80,15 +80,30 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     super.dispose();
   }
 
+  String? _hoveredHit; // 鼠标悬浮命中的线（仅记录，点击才打开）
+
+  /// hover 只记录命中的线，不弹卡；点击时由 _onTap 打开。
   void _onPolylineHit() {
     final r = _polylineHit.value;
-    if (r == null || r.hitValues.isEmpty) return;
-    if (_mode != _EditMode.none) return;
-    final key = r.hitValues.first;
+    if (r == null || r.hitValues.isEmpty) {
+      _hoveredHit = null;
+      return;
+    }
+    if (_mode != _EditMode.none) {
+      _hoveredHit = null;
+      return;
+    }
+    _hoveredHit = r.hitValues.first;
+  }
+
+  /// 打开悬停命中的实体（行程连接线或路径）。
+  void _openHovered() {
+    final key = _hoveredHit;
+    _hoveredHit = null;
+    if (key == null) return;
     final parts = key.split('|');
     final d = _personData();
     if (parts.length == 2 && parts[0] == 'trip') {
-      // 行程连接线：打开行程弹窗
       final t = d?.tripById(parts[1]);
       if (t != null) _selectTrip(t, widget.personId);
       return;
@@ -345,29 +360,40 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
     });
   }
 
-  /// 行程在地图上的锚点：优先取路径中点，其次首末地点中点，最后起点长期地点，
-  /// 尽量避开与地点（尤其长期地点）标记重合。
+  /// 行程在地图上的锚点：优先取路径中离所有地点（含长期地点）最远的点，
+  /// 其次首末地点中点，最后起点长期地点。
   LatLng? _tripAnchor(TripBundle t, List<Waypoint> allLife) {
     final g = t.gpx;
-    LatLng? mid(List<LatLng> pts) =>
-        pts.isEmpty ? null : pts[pts.length ~/ 2];
-    for (final p in g.paths) {
-      if (p.points.length >= 2) {
-        final pts = [for (final pt in p.points) pt.latLng];
-        final m = mid(pts);
-        if (m != null) return m;
+    final wpts = [...g.waypoints, ...allLife];
+    if (g.paths.isNotEmpty) {
+      // 所有路径点中，与最近地点距离最大的点
+      LatLng? best;
+      var bestDist = -1.0;
+      for (final p in g.paths) {
+        for (final pt in p.points) {
+          var minD = double.infinity;
+          for (final w in wpts) {
+            final d = haversineM(pt.latLng, w.latLng);
+            if (d < minD) minD = d;
+          }
+          if (minD > bestDist) {
+            bestDist = minD;
+            best = pt.latLng;
+          }
+        }
       }
+      if (best != null) return best;
     }
     if (g.waypoints.isNotEmpty) {
-      final wps = [...g.waypoints]..sort((a, b) =>
+      final sorted = [...g.waypoints]..sort((a, b) =>
           (a.sortTime ?? a.createdAt).compareTo(b.sortTime ?? b.createdAt));
-      if (wps.length >= 2) {
+      if (sorted.length >= 2) {
         return LatLng(
-          (wps.first.latLng.latitude + wps.last.latLng.latitude) / 2,
-          (wps.first.latLng.longitude + wps.last.latLng.longitude) / 2,
+          (sorted.first.latLng.latitude + sorted.last.latLng.latitude) / 2,
+          (sorted.first.latLng.longitude + sorted.last.latLng.longitude) / 2,
         );
       }
-      return wps.first.latLng;
+      return sorted.first.latLng;
     }
     for (final e in allLife) {
       if (e.id == t.meta.startEventId) return e.latLng;
@@ -405,11 +431,19 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   void _onTap(TapPosition pos, LatLng latlng) {
     switch (_mode) {
       case _EditMode.none:
-        setState(() => _selected = null);
+        if (_hoveredHit != null) {
+          // 悬浮在连接线/路径上时点击 → 打开对应实体
+          _openHovered();
+        } else {
+          setState(() {
+            _selected = null;
+            _hoveredHit = null;
+          });
+        }
       case _EditMode.addPlace:
         _addWaypointAt(latlng);
       case _EditMode.drawPath:
-        break; // 绘制模式下由外层 GestureDetector 处理（支持双击结束）
+        break; // 绘制模式下由外层 GestureDetector 处理（点完成结束）
       case _EditMode.editPath:
         break;
       case _EditMode.translatePath:
@@ -689,7 +723,6 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
               behavior: HitTestBehavior.translucent,
               onTapDown: (d) => _addDraftFromScreen(d.localPosition),
               onTapCancel: _undoDraftPoint,
-              onDoubleTap: () => _finishDrawPath(),
             ),
           ),
         if (_mode == _EditMode.translatePath)
@@ -699,16 +732,18 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
             child: const SizedBox.expand(),
           ),
         if (_mode == _EditMode.drawPath)
-          IgnorePointer(
-            child: PolylineLayer(
-              polylines: [
-                Polyline(
-                  points: _draftPoints,
-                  strokeWidth: 3,
-                  color: Colors.orange,
-                  pattern: StrokePattern.dashed(segments: const [8, 6]),
-                ),
-              ],
+          Positioned.fill(
+            child: IgnorePointer(
+              child: PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: _draftPoints,
+                    strokeWidth: 3,
+                    color: Colors.orange,
+                    pattern: StrokePattern.dashed(segments: const [8, 6]),
+                  ),
+                ],
+              ),
             ),
           ),
         if (_mode != _EditMode.none) _buildModeBanner(),
@@ -959,7 +994,7 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
   Widget _buildModeBanner() {
     final msg = switch (_mode) {
       _EditMode.addPlace => '输入搜索或点击地图选点',
-      _EditMode.drawPath => '点击落点，双击结束（${_draftPoints.length} 点）',
+      _EditMode.drawPath => '点击落点，点完成结束（${_draftPoints.length} 点）',
       _EditMode.editPath => '拖动顶点、点顶点删除、点空心圆插入',
       _EditMode.translatePath => '拖动整条路径',
       _EditMode.none => '',
@@ -1137,6 +1172,22 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
             icon: const Icon(Icons.check),
             tooltip: '完成平移',
             onPressed: _finishTranslate,
+          ),
+        ];
+      case _EditMode.drawPath:
+        return [
+          IconButton(
+            icon: const Icon(Icons.check),
+            tooltip: '完成',
+            onPressed: _finishDrawPath,
+          ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: '退出',
+            onPressed: () => setState(() {
+              _mode = _EditMode.none;
+              _draftPoints.clear();
+            }),
           ),
         ];
       default:

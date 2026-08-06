@@ -119,9 +119,18 @@ class TimelinePage extends ConsumerWidget {
             const PopupMenuItem(value: 'delete', child: Text('删除')),
           ],
         ),
-        onTap: () {
-          DefaultTabController.of(context).animateTo(0);
-          ref.read(mapPageActionProvider(personId).notifier).focusOn(w.latLng);
+        onTap: () async {
+          // 点击直接进入编辑（名称/说明/时间）
+          final form = await showWaypointDialog(context, personId: personId, existing: w, tripId: tripId);
+          if (form == null) return;
+          form.applyTo(w);
+          w.updatedAt = DateTime.now();
+          final notifier = ref.read(personDataProvider(personId).notifier);
+          if (tripId == null) {
+            await notifier.saveLifeWaypoint(w);
+          } else {
+            await notifier.saveTripWaypoint(tripId, w);
+          }
         },
       ),
     );
