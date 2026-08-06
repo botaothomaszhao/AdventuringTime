@@ -5,7 +5,6 @@ import '../lifecycle.dart';
 import '../models.dart';
 import '../providers.dart';
 import 'dialogs.dart';
-import 'person_shell.dart';
 import 'widgets.dart';
 
 /// 时间线条目：长期地点（含行程内）与行程按时间混合排序。

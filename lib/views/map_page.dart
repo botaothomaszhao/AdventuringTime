@@ -291,7 +291,12 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
               leading: const Icon(Icons.edit_note_outlined),
               title: const Text('编辑信息'),
               onTap: () async {
-                final form = await showPathDialog(context, personId: personId, existing: p);
+                final form = await showPathDialog(
+                  context,
+                  personId: personId,
+                  existing: p,
+                  onDelete: () => _deletePathFromDialog(p, tripId, personId),
+                );
                 if (form == null) return;
                 form.applyTo(p);
                 p.updatedAt = DateTime.now();
@@ -373,47 +378,6 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
         },
       );
     });
-  }
-
-  /// 行程在地图上的锚点：优先取路径中离所有地点（含长期地点）最远的点，
-  /// 其次首末地点中点，最后起点长期地点。
-  LatLng? _tripAnchor(TripBundle t, List<Waypoint> allLife) {
-    final g = t.gpx;
-    final wpts = [...g.waypoints, ...allLife];
-    if (g.paths.isNotEmpty) {
-      // 所有路径点中，与最近地点距离最大的点
-      LatLng? best;
-      var bestDist = -1.0;
-      for (final p in g.paths) {
-        for (final pt in p.points) {
-          var minD = double.infinity;
-          for (final w in wpts) {
-            final d = haversineM(pt.latLng, w.latLng);
-            if (d < minD) minD = d;
-          }
-          if (minD > bestDist) {
-            bestDist = minD;
-            best = pt.latLng;
-          }
-        }
-      }
-      if (best != null) return best;
-    }
-    if (g.waypoints.isNotEmpty) {
-      final sorted = [...g.waypoints]..sort((a, b) =>
-          (a.sortTime ?? a.createdAt).compareTo(b.sortTime ?? b.createdAt));
-      if (sorted.length >= 2) {
-        return LatLng(
-          (sorted.first.latLng.latitude + sorted.last.latLng.latitude) / 2,
-          (sorted.first.latLng.longitude + sorted.last.latLng.longitude) / 2,
-        );
-      }
-      return sorted.first.latLng;
-    }
-    for (final e in allLife) {
-      if (e.id == t.meta.startEventId) return e.latLng;
-    }
-    return null;
   }
 
   Future<Trip?> _pickTrip(List<TripBundle> trips) async {
@@ -832,35 +796,6 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
             minimumHitbox: 10,
           ));
         }
-
-        // 行程实体标记（锚点在路径首点/最早地点/起点长期地点），点击编辑行程
-        if (tripId != null && toggles.paths) {
-          final t = d.tripById(tripId);
-          final allLife = [
-            for (final w in d.life.events) w,
-            for (final x in d.trips) ...x.gpx.events,
-          ];
-          final anchor = t == null ? null : _tripAnchor(t, allLife);
-          if (t != null && anchor != null) {
-            personLayers.add(MarkerLayer(markers: [
-              Marker(
-                point: anchor,
-                width: 30,
-                height: 30,
-                alignment: Alignment.topCenter,
-                child: GestureDetector(
-                  onTap: () => _selectTrip(t, p.id),
-                  child: Icon(
-                    Icons.flag,
-                    color: color,
-                    size: 26,
-                    shadows: const [Shadow(color: Colors.white, blurRadius: 3)],
-                  ),
-                ),
-              ),
-            ]));
-          }
-        }
       }
 
       if (toggles.lifePath) {
@@ -1219,11 +1154,35 @@ class _MapPageState extends ConsumerState<MapPage> with AutomaticKeepAliveClient
 
   Future<void> _editPathInfo(PathData p) async {
     final key = _editPathKey()!;
-    final form = await showPathDialog(context, personId: widget.personId, existing: p);
+    final form = await showPathDialog(
+      context,
+      personId: widget.personId,
+      existing: p,
+      onDelete: () => _deletePathFromDialog(p, key.$1, widget.personId),
+    );
     if (form == null) return;
     form.applyTo(p);
     p.updatedAt = DateTime.now();
     await ref.read(personDataProvider(widget.personId).notifier).saveTripPath(key.$1, p);
+  }
+
+  /// 路径编辑对话框内的删除：确认后删除并关闭对话框与编辑模式。
+  Future<void> _deletePathFromDialog(PathData p, String tripId, String personId) async {
+    final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
+    if (!ok) return;
+    if (p.mediaId != null) {
+      await deleteMediaIfUnused(ref, personId, p.mediaId!,
+          waypoints: _allWaypoints(personId), paths: _allPaths(personId));
+    }
+    await ref.read(personDataProvider(personId).notifier).deleteTripPath(tripId, p.id);
+    if (context.mounted) Navigator.pop(context);
+    if (mounted) {
+      setState(() {
+        _mode = _EditMode.none;
+        _editKey = null;
+        _selected = null;
+      });
+    }
   }
 
   Future<void> _deletePathFromEdit(PathData p) async {

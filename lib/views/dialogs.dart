@@ -10,6 +10,38 @@ import 'widgets.dart';
 
 /// 编辑对话框集合：地点/长期地点、路径、行程、人。
 
+/// 简单数值列表选择（年份/月份），定位到当前值附近。
+Future<int?> pickValueDialog(
+  BuildContext context, {
+  required int from,
+  required int to,
+  required String unit,
+  int? current,
+}) {
+  final cur = current ?? (unit == '年' ? DateTime.now().year : 1);
+  return showDialog<int>(
+    context: context,
+    builder: (c) => AlertDialog(
+      title: Text('选择$unit'),
+      content: SizedBox(
+        width: 220,
+        height: 300,
+        child: ListView.builder(
+          controller: ScrollController(
+            initialScrollOffset: (cur - from) * 40.0,
+          ),
+          itemCount: to - from + 1,
+          itemBuilder: (c, i) => ListTile(
+            dense: true,
+            title: Text('${from + i} $unit'),
+            onTap: () => Navigator.pop(c, from + i),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 /// 地点/长期地点表单结果。
 class WaypointForm {
   final String name;
@@ -134,12 +166,12 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
     DateTime? t;
     switch (precision) {
       case TimePrecision.year:
-        final y = await _pickValue(1900, 2100, '年');
+        final y = await pickValueDialog(context, from: 1900, to: 2100, unit: '年');
         if (y != null) t = DateTime(y, 1, 1);
       case TimePrecision.month:
-        final y = await _pickValue(1900, 2100, '年');
+        final y = await pickValueDialog(context, from: 1900, to: 2100, unit: '年');
         if (y == null) return;
-        final m = await _pickValue(1, 12, '月');
+        final m = await pickValueDialog(context, from: 1, to: 12, unit: '月');
         if (m != null) t = DateTime(y, m, 1);
       case TimePrecision.day:
         final now = _time ?? DateTime.now();
@@ -155,34 +187,6 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
       _time = t;
       _precision = precision;
     });
-  }
-
-  /// 简单数值列表选择（年份/月份）。
-  Future<int?> _pickValue(int from, int to, String unit) {
-    final cur = _time != null && from < to
-        ? (unit == '年' ? _time!.year : _time!.month)
-        : (unit == '年' ? DateTime.now().year : 1);
-    return showDialog<int>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: Text('选择$unit'),
-        content: SizedBox(
-          width: 220,
-          height: 300,
-          child: ListView.builder(
-            controller: ScrollController(
-              initialScrollOffset: (cur - from) * 40.0,
-            ),
-            itemCount: to - from + 1,
-            itemBuilder: (c, i) => ListTile(
-              dense: true,
-              title: Text('${from + i} $unit'),
-              onTap: () => Navigator.pop(c, from + i),
-            ),
-          ),
-        ),
-      ),
-    );
   }
 
   /// 普通地点必选的所属行程下拉（新建长期地点不显示）。
@@ -376,13 +380,17 @@ class PathForm {
   final String name;
   final String? desc;
   final String? mediaId;
+  final DateTime? time; // 手绘路径的时间（写入首点，供轨迹线排序）
 
-  const PathForm({required this.name, this.desc, this.mediaId});
+  const PathForm({required this.name, this.desc, this.mediaId, this.time});
 
   void applyTo(PathData p) {
     p.name = name;
     p.desc = desc;
     p.mediaId = mediaId;
+    if (time != null && p.points.isNotEmpty) {
+      p.points[0] = TrackPoint(p.points[0].latLng, time);
+    }
   }
 }
 
@@ -390,18 +398,20 @@ Future<PathForm?> showPathDialog(
   BuildContext context, {
   required String personId,
   PathData? existing,
+  VoidCallback? onDelete,
 }) {
   return showDialog<PathForm>(
     context: context,
-    builder: (_) => _PathDialog(personId: personId, existing: existing),
+    builder: (_) => _PathDialog(personId: personId, existing: existing, onDelete: onDelete),
   );
 }
 
 class _PathDialog extends ConsumerStatefulWidget {
   final String personId;
   final PathData? existing;
+  final VoidCallback? onDelete;
 
-  const _PathDialog({required this.personId, this.existing});
+  const _PathDialog({required this.personId, this.existing, this.onDelete});
 
   @override
   ConsumerState<_PathDialog> createState() => _PathDialogState();
@@ -411,6 +421,8 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
   late final TextEditingController _name;
   late final TextEditingController _desc;
   String? _mediaId;
+  DateTime? _time;
+  TimePrecision? _precision;
 
   @override
   void initState() {
@@ -418,6 +430,8 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
     _name = TextEditingController(text: widget.existing?.name ?? '');
     _desc = TextEditingController(text: widget.existing?.desc ?? '');
     _mediaId = widget.existing?.mediaId;
+    _time = widget.existing?.points.firstOrNull?.time;
+    _precision = null;
   }
 
   @override
@@ -434,6 +448,41 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
     final id = await ref.read(personDataProvider(widget.personId).notifier).addMedia(ext, bytes);
     ref.invalidate(mediaListProvider(widget.personId));
     setState(() => _mediaId = id);
+  }
+
+  /// 按当前精度选择时间（与地点对话框一致）。
+  Future<void> _pickTime() async {
+    final precision = _precision ?? TimePrecision.day;
+    DateTime? t;
+    switch (precision) {
+      case TimePrecision.year:
+        final y = await pickValueDialog(context, from: 1900, to: 2100, unit: '年');
+        if (y != null) t = DateTime(y, 1, 1);
+      case TimePrecision.month:
+        final y = await pickValueDialog(context, from: 1900, to: 2100, unit: '年');
+        if (y == null) return;
+        final m = await pickValueDialog(context, from: 1, to: 12, unit: '月');
+        if (m != null) t = DateTime(y, m, 1);
+      case TimePrecision.day:
+        final now = _time ?? DateTime.now();
+        t = await showDatePicker(
+          context: context,
+          initialDate: now,
+          firstDate: DateTime(1900),
+          lastDate: DateTime(2100),
+        );
+    }
+    if (t == null) return;
+    setState(() => _time = t);
+  }
+
+  String _fmtTime() {
+    final t = _time!;
+    return switch (_precision ?? TimePrecision.day) {
+      TimePrecision.year => '${t.year}年',
+      TimePrecision.month => '${t.year}年${t.month}月',
+      TimePrecision.day => '${t.year}年${t.month}月${t.day}日',
+    };
   }
 
   @override
@@ -456,6 +505,28 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
           const SizedBox(height: 8),
           Row(
             children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _pickTime,
+                  icon: const Icon(Icons.event),
+                  label: Text(_time == null ? '设置时间（可选）' : _fmtTime()),
+                ),
+              ),
+              const SizedBox(width: 8),
+              DropdownButton<TimePrecision>(
+                value: _precision ?? TimePrecision.day,
+                onChanged: (v) => setState(() => _precision = v),
+                items: const [
+                  DropdownMenuItem(value: TimePrecision.year, child: Text('年')),
+                  DropdownMenuItem(value: TimePrecision.month, child: Text('月')),
+                  DropdownMenuItem(value: TimePrecision.day, child: Text('日')),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
               Expanded(child: _MediaThumb(personId: widget.personId, mediaId: _mediaId)),
               TextButton.icon(
                 onPressed: _pickImage,
@@ -472,6 +543,12 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
         ],
       ),
       actions: [
+        if (widget.onDelete != null)
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+            onPressed: widget.onDelete,
+            child: const Text('删除'),
+          ),
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
         FilledButton(
           onPressed: () {
@@ -486,6 +563,7 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
                 name: name,
                 desc: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
                 mediaId: _mediaId,
+                time: _time,
               ),
             );
           },
