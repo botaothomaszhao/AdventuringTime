@@ -6,7 +6,7 @@
 
 - **Flutter SDK**：3.44.8 stable，位于 `D:\flutter`；Dart 3.12.2 随自带，`dart` 命令同目录
 - **Android 工具链**：SDK 位于 `D:\Android\sdk`（36.0.0），`flutter doctor` Android 绿灯；Java 23 已装；adb 在 `D:\Android\sdk\platform-tools\adb.exe`
-- **真机**：红米 Note 12 Turbo（开发者选项"USB 安装"需登录小米账号，不可用 → 用 adb push + 手机文件管理器手动安装 APK）
+- **真机**：开发者选项"USB 安装"不可用 → 用 adb push + 手机文件管理器手动安装 APK
 - **VS Build Tools 2022**：17.14.37，路径 `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools`；已装组件：MSVC C++ 工具集、CMake、Windows 10 SDK（19041），`flutter doctor` Windows 检查全绿
 
 ### 已知坑：VS workload 标记
@@ -15,7 +15,7 @@
 
 已解决方式：手动补写实例的 `state.packages.json`，加入两个 Workload 条目（`C:\ProgramData\Microsoft\VisualStudio\Packages\_Instances\<实例id>\state.packages.json`）。
 
-**不要用 `setup.exe modify` 重装/改动组件**——它重写该文件会冲掉手动标记；若被冲掉，重跑补丁脚本 `C:\Users\botao\AppData\Local\Temp\opencode\fix_vs_state.ps1`（需管理员）。
+**不要用 `setup.exe modify` 重装/改动组件**——它重写该文件会冲掉手动标记；若被冲掉，重跑补丁脚本 `%USERPROFILE%\AppData\Local\Temp\opencode\fix_vs_state.ps1`（需管理员）。
 
 ### 已知坑：gradle Kotlin 增量缓存冲突
 
@@ -23,7 +23,7 @@
 
 ### MCP
 
-- **Dart/Flutter 官方 MCP**（`dart mcp-server`）：已配置在全局 `C:\Users\botao\.config\opencode\opencode.jsonc`（注意扩展名是 jsonc，不是 json）；功能：启动应用、查看 widget 树、截图、热重载等，通过连接运行中的 Flutter 应用的 VM Service 工作
+- **Dart/Flutter 官方 MCP**（`dart mcp-server`）：已配置在全局 `%USERPROFILE%\.config\opencode\opencode.jsonc`（注意扩展名是 jsonc，不是 json）；功能：启动应用、查看 widget 树、截图、热重载等，通过连接运行中的 Flutter 应用的 VM Service 工作
 - 浏览器调试：chrome-devtools MCP（对 Flutter 桌面应用不适用，仅网页）
 
 ## 常用命令
@@ -51,7 +51,7 @@ flutter build apk --release    # 安卓 release（debug key 签名）；成功�
 Get-Process -Name "adventuring_time" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 2
 $ws = New-Object -ComObject WScript.Shell
-$cmd = 'cmd /c "D:\flutter\bin\flutter.bat run -d windows > C:\Users\botao\AppData\Local\Temp\opencode\flutter_run.log 2> C:\Users\botao\AppData\Local\Temp\opencode\flutter_run_err.log"'
+$cmd = 'cmd /c "D:\flutter\bin\flutter.bat run -d windows > %USERPROFILE%\AppData\Local\Temp\opencode\flutter_run.log 2> %USERPROFILE%\AppData\Local\Temp\opencode\flutter_run_err.log"'
 $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 # 轮询进程出现（约 30-90s），再 sleep 十几秒等数据/瓦片就绪；从日志 grep "VM Service" 拿调试地址
 ```
