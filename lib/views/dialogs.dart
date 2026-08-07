@@ -871,7 +871,7 @@ Future<bool> confirmDialog(BuildContext context, String title, String message) a
   return ok ?? false;
 }
 
-/// 已废弃引用清理工具：人/行程里不再引用该媒体时物理删除。
+/// 废弃引用清理工具：当前数据与全部备份都不再引用该媒体时物理删除。
 Future<void> deleteMediaIfUnused(
   WidgetRef ref,
   String personId,
@@ -884,6 +884,8 @@ Future<void> deleteMediaIfUnused(
     for (final p in paths) if (p.mediaId != null) p.mediaId!};
   if (coverId != null) used.add(coverId);
   if (!used.contains(mediaId)) {
+    final repo = await ref.read(personRepoProvider(personId).future);
+    if (await repo.mediaReferencedInBackups(mediaId)) return;
     await ref.read(personDataProvider(personId).notifier).deleteMedia(mediaId);
     ref.invalidate(mediaListProvider(personId));
   }

@@ -55,6 +55,13 @@ class SyncServer {
             {'id': p.id, 'name': p.name, 'updatedAt': p.updatedAt.toUtc().toIso8601String()},
         ]);
       }
+      if (segs.length == 2 && segs[1] == 'backup' && req.method == 'POST') {
+        final app = await _repo();
+        for (final p in await app.listPeople()) {
+          await PersonRepository(app.personDir(p.id)).backupAll();
+        }
+        return _json(res, 200, {'ok': true});
+      }
       if (segs.length == 4 && segs[1] == 'person' && segs[3] == 'manifest' && req.method == 'GET') {
         final repo = PersonRepository((await _repo()).personDir(segs[2]));
         if (!await repo.root.exists()) return _json(res, 200, {'units': []});

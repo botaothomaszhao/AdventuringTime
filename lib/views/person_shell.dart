@@ -14,6 +14,23 @@ import 'map_page.dart';
 import 'stats_page.dart';
 import 'timeline_page.dart';
 
+/// 跨平台保存 .atrip：安卓写下载目录，其余弹保存对话框。
+Future<void> _saveAtrip(BuildContext context, String filename, List<int> bytes) async {
+  if (Platform.isAndroid) {
+    final path = await saveToDownloads(filename, bytes);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('已导出到下载目录：$path')));
+  } else {
+    final loc = await getSaveLocation(suggestedName: filename);
+    final path = loc?.path;
+    if (path == null) return;
+    await File(path).writeAsBytes(bytes, flush: true);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已导出')));
+  }
+}
+
 /// 主界面：顶部操作栏（人物选择/新增/删除/图层/设置）+ 底部导航（地图/时间线/统计）。
 class PersonHome extends ConsumerStatefulWidget {
   final int initialTab;
@@ -87,28 +104,27 @@ class _PersonHomeState extends ConsumerState<PersonHome>
       final bytes = await exportPersonPack(repo);
       final filename =
           '${person.name.isEmpty ? 'person' : person.name}-${DateTime.now().millisecondsSinceEpoch}.atrip';
-      if (Platform.isAndroid) {
-        final path = await saveToDownloads(filename, bytes);
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('已导出到下载目录：$path')));
-      } else {
-        final loc = await getSaveLocation(suggestedName: filename);
-        final path = loc?.path;
-        if (path == null) return;
-        await File(path).writeAsBytes(bytes, flush: true);
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('人物已导出')));
-      }
+      await _saveAtrip(context, filename, bytes);
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('导出失败：$e')));
     }
+  }
+
+  /// 备份管理对话框：手动备份 / 查看已有备份（恢复、导出、删除）。
+  Future<void> _openBackupDialog(BuildContext context, Person person) async {
+    final repo = await ref.read(personRepoProvider(person.id).future);
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _BackupDialog(
+        repo: repo,
+        personId: person.id,
+        personName: person.name,
+      ),
+    );
   }
 
   Future<void> _importPerson(BuildContext context) async {
@@ -175,50 +191,61 @@ class _PersonHomeState extends ConsumerState<PersonHome>
     final current = people.where((p) => p.id == currentId).firstOrNull;
     return Scaffold(
       appBar: AppBar(
-        title: PopupMenuButton<String>(
-          onSelected: (v) => _onMenu(v, people, currentId),
-          itemBuilder: (_) => [
-            for (final p in people)
-              PopupMenuItem(
-                value: p.id,
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.person_outline,
-                      size: 18,
-                      color: p.id == currentId ? Colors.orange : null,
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            PopupMenuButton<String>(
+              onSelected: (v) => _onMenu(v, people, currentId),
+              itemBuilder: (_) => [
+                for (final p in people)
+                  PopupMenuItem(
+                    value: p.id,
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.person_outline,
+                          size: 18,
+                          color: p.id == currentId ? Colors.orange : null,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(p.name),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    Text(p.name),
-                  ],
-                ),
+                  ),
+                const PopupMenuDivider(),
+                const PopupMenuItem(value: 'add', child: Text('新增人物')),
+                if (current != null) ...[
+                  const PopupMenuItem(value: 'edit', child: Text('编辑资料')),
+                  const PopupMenuItem(value: 'delete', child: Text('删除当前人物')),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(
+                    value: 'export',
+                    child: Text('导出人物整包 (.atrip)'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'import',
+                    child: Text('导入人物整包 (.atrip)'),
+                  ),
+                ],
+              ],
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    current?.name ?? '选择人物',
+                    style: const TextStyle(fontSize: 18),
+                  ),
+                  const Icon(Icons.arrow_drop_down),
+                ],
               ),
-            const PopupMenuDivider(),
-            const PopupMenuItem(value: 'add', child: Text('新增人物')),
-            if (current != null) ...[
-              const PopupMenuItem(value: 'edit', child: Text('编辑资料')),
-              const PopupMenuItem(value: 'delete', child: Text('删除当前人物')),
-              const PopupMenuDivider(),
-              const PopupMenuItem(
-                value: 'export',
-                child: Text('导出人物整包 (.atrip)'),
+            ),
+            if (current != null)
+              IconButton(
+                icon: const Icon(Icons.archive_outlined),
+                tooltip: '备份',
+                onPressed: () => _openBackupDialog(context, current),
               ),
-              const PopupMenuItem(
-                value: 'import',
-                child: Text('导入人物整包 (.atrip)'),
-              ),
-            ],
           ],
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                current?.name ?? '选择人物',
-                style: const TextStyle(fontSize: 18),
-              ),
-              const Icon(Icons.arrow_drop_down),
-            ],
-          ),
         ),
         actions: [
           if (_tab.index == 0)
@@ -287,6 +314,178 @@ class _PersonHomeState extends ConsumerState<PersonHome>
             text: '统计',
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 备份管理对话框：手动备份 / 已有备份的恢复、导出、删除。
+class _BackupDialog extends ConsumerStatefulWidget {
+  final PersonRepository repo;
+  final String personId;
+  final String personName;
+
+  const _BackupDialog({
+    required this.repo,
+    required this.personId,
+    required this.personName,
+  });
+
+  @override
+  ConsumerState<_BackupDialog> createState() => _BackupDialogState();
+}
+
+class _BackupDialogState extends ConsumerState<_BackupDialog> {
+  List<String>? _backups;
+  String? _err;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    try {
+      final l = await widget.repo.listBackups();
+      if (mounted) setState(() {
+        _backups = l;
+        _err = null;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _err = '$e');
+    }
+  }
+
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _manualBackup() async {
+    try {
+      await widget.repo.backupAll();
+      await _reload();
+      _snack('已手动备份');
+    } catch (e) {
+      _snack('备份失败：$e');
+    }
+  }
+
+  Future<void> _restore(String ts) async {
+    final ok = await confirmDialog(
+      context,
+      '恢复备份',
+      '恢复 $ts 后当前数据将被该版本替换（备份文件保留），确定？',
+    );
+    if (!ok) return;
+    try {
+      await widget.repo.restoreBackupAll(ts);
+      ref.invalidate(peopleProvider);
+      ref.invalidate(personDataProvider(widget.personId));
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      _snack('恢复失败：$e');
+    }
+  }
+
+  Future<void> _export(String ts) async {
+    try {
+      final bytes = await exportBackupPack(widget.repo, ts);
+      final name = widget.personName.isEmpty ? 'person' : widget.personName;
+      if (!mounted) return;
+      await _saveAtrip(context, '$name-$ts.atrip', bytes);
+    } catch (e) {
+      _snack('导出失败：$e');
+    }
+  }
+
+  Future<void> _delete(String ts) async {
+    final ok = await confirmDialog(
+      context,
+      '删除备份',
+      '删除备份 $ts？该时间点的版本将不可恢复。',
+    );
+    if (!ok) return;
+    try {
+      await widget.repo.deleteBackup(ts);
+      await _reload();
+    } catch (e) {
+      _snack('删除失败：$e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final backups = _backups;
+    final theme = Theme.of(context);
+    return Dialog(
+      child: SizedBox(
+        width: 420,
+        height: 460,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text('备份', style: theme.textTheme.titleLarge),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: FilledButton.icon(
+                onPressed: _manualBackup,
+                icon: const Icon(Icons.archive),
+                label: const Text('手动备份'),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Text('已有备份'),
+            ),
+            Expanded(
+              child: backups == null
+                  ? Center(child: Text(_err ?? '加载中…'))
+                  : backups.isEmpty
+                      ? const Center(child: Text('暂无备份'))
+                      : ListView(
+                          children: [
+                            for (final ts in backups)
+                              ListTile(
+                                dense: true,
+                                title: Text(ts),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      tooltip: '恢复该版本',
+                                      icon: const Icon(Icons.restore),
+                                      onPressed: () => _restore(ts),
+                                    ),
+                                    IconButton(
+                                      tooltip: '导出备份',
+                                      icon: const Icon(Icons.download_outlined),
+                                      onPressed: () => _export(ts),
+                                    ),
+                                    IconButton(
+                                      tooltip: '删除备份',
+                                      icon: const Icon(Icons.delete_outline),
+                                      onPressed: () => _delete(ts),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('关闭'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

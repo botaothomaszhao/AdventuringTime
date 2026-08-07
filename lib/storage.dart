@@ -112,7 +112,6 @@ class PersonRepository {
 
   Future<void> saveLife(GpxFile gpx) async {
     final f = File(p.join(root.path, 'life.gpx'));
-    await backupBefore('life.gpx', f);
     await f.writeAsString(toGpx(gpx), flush: true);
     await setLifeUpdatedAt(DateTime.now());
   }
@@ -160,39 +159,40 @@ class PersonRepository {
     final jf = File(p.join(dir.path, 'trip.json'));
     final gf = File(p.join(dir.path, 'trip.gpx'));
     bundle.meta.updatedAt = DateTime.now();
-    await backupBefore('trip_${bundle.meta.id}.json', jf);
-    await backupBefore('trip_${bundle.meta.id}.gpx', gf);
     await _writeJson(jf, bundle.meta.toJson());
     await gf.writeAsString(toGpx(bundle.gpx, trip: bundle.meta), flush: true);
   }
 
   Future<void> deleteTrip(String tripId) async {
     final dir = tripDir(tripId);
-    if (await dir.exists()) {
-      await backupBefore('trip_$tripId', dir);
-      await dir.delete(recursive: true);
-    }
+    if (await dir.exists()) await dir.delete(recursive: true);
     await recordTombstone('trip', tripId);
+    await pruneOrphanMedia();
   }
 
   // ---------- 备份 ----------
-
-  /// 覆盖/删除前把旧版本整体复制到 `backups/<yyyyMMdd-HHmmss>/`。
-  /// src 是文件则备份为单文件，是目录则备份为目录（与 src 类型一致）。
-  Future<void> backupBefore(String name, FileSystemEntity src) async {
-    if (!await src.exists()) return;
-    final ts = _timestamp();
-    final dest = FileSystemEntity.typeSync(src.path) == FileSystemEntityType.file
-        ? File(p.join(root.path, 'backups', ts, name)) as FileSystemEntity
-        : Directory(p.join(root.path, 'backups', ts, name)) as FileSystemEntity;
-    await dest.parent.create(recursive: true);
-    await _copyTree(src, dest);
-  }
 
   static String _timestamp() {
     final t = DateTime.now();
     String two(int v) => v.toString().padLeft(2, '0');
     return '${t.year}${two(t.month)}${two(t.day)}-${two(t.hour)}${two(t.minute)}${two(t.second)}';
+  }
+
+  /// 全量备份：仅复制 profile/life/各行程（媒体不进备份，始终留在共用媒体池），
+  /// 存到 `backups/<ts>/`（同步前与手动触发时调用）。
+  Future<void> backupAll() async {
+    final dest = Directory(p.join(root.path, 'backups', _timestamp()));
+    await dest.create(recursive: true);
+    Future<void> put(String name, File src) async {
+      if (await src.exists()) await src.copy(p.join(dest.path, name));
+    }
+
+    await put('profile.json', File(p.join(root.path, 'profile.json')));
+    await put('life.gpx', File(p.join(root.path, 'life.gpx')));
+    for (final meta in await listTrips()) {
+      await put('trip_${meta.id}.json', File(p.join(tripDir(meta.id).path, 'trip.json')));
+      await put('trip_${meta.id}.gpx', File(p.join(tripDir(meta.id).path, 'trip.gpx')));
+    }
   }
 
   /// 列出备份时间戳，用于"从备份恢复"。
@@ -205,6 +205,7 @@ class PersonRepository {
   }
 
   /// 从指定备份恢复单元（目录名如 `trip_xxx` 或 `life.gpx` 或 `media_xxx.ext`）。
+  /// 备份文件本身不被修改。
   Future<void> restoreBackup(String timestamp, String unitName) async {
     final src = FileSystemEntity.typeSync(
         p.join(root.path, 'backups', timestamp, unitName)) ==
@@ -224,10 +225,51 @@ class PersonRepository {
         File(p.join(media.dir.path, s.substring(6))),
       _ => File(p.join(root.path, unitName)),
     };
-    if (await target.exists() && target is File) {
-      await backupBefore('restore_$unitName', target);
-    }
     await _copyTree(src, target);
+  }
+
+  /// 把某备份时间戳下的全部单元恢复到当前数据（跳过恢复前自动备份单元，备份文件不动）。
+  Future<void> restoreBackupAll(String timestamp) async {
+    final d = Directory(p.join(root.path, 'backups', timestamp));
+    if (!await d.exists()) return;
+    for (final e in await d.list().toList()) {
+      final n = p.basename(e.path);
+      if (n.startsWith('restore_')) continue;
+      await restoreBackup(timestamp, n);
+    }
+  }
+
+  /// 删除某备份时间戳目录，随后清理孤儿媒体。
+  Future<void> deleteBackup(String timestamp) async {
+    final d = Directory(p.join(root.path, 'backups', timestamp));
+    if (await d.exists()) await d.delete(recursive: true);
+    await pruneOrphanMedia();
+  }
+
+  /// 扫描当前数据与全部备份的媒体引用，未被引用的媒体物理删除。
+  Future<void> pruneOrphanMedia() async {
+    final used = await referencedMediaIds();
+    for (final ts in await listBackups()) {
+      used.addAll(await collectReferencedMediaIds(Directory(p.join(root.path, 'backups', ts))));
+    }
+    for (final f in media.listAll()) {
+      if (!used.contains(p.basenameWithoutExtension(f.path))) {
+        await f.delete();
+      }
+    }
+  }
+
+  /// 当前数据（profile/life/行程）引用的 mediaId 集合。
+  Future<Set<String>> referencedMediaIds() => collectReferencedMediaIds(root);
+
+  /// 媒体是否在任一备份中被引用（备份只存 gpx/json 引用，不含媒体文件）。
+  Future<bool> mediaReferencedInBackups(String mediaId) async {
+    for (final ts in await listBackups()) {
+      if ((await collectReferencedMediaIds(Directory(p.join(root.path, 'backups', ts)))).contains(mediaId)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // ---------- 同步状态（manifest.json）----------
@@ -323,6 +365,42 @@ class PersonRepository {
   Future<void> _writeJson(File f, Map<String, dynamic> m) async {
     await f.writeAsString(toJsonString(m), flush: true);
   }
+}
+
+/// 收集目录中所有 gpx/json 引用的 mediaId 集合（用于导出只打被引用媒体、孤儿清理）。
+/// 兼容数据目录（profile.json/life.gpx/trips/<id>/…）与备份目录（顶层平铺）两种布局；
+/// 跳过 media/ 与 backups/ 目录。媒体引用来自 Waypoint/PathData.mediaId、Trip.cover、Person.avatar。
+Future<Set<String>> collectReferencedMediaIds(Directory root) async {
+  final ids = <String>{};
+  Future<void> scan(FileSystemEntity e) async {
+    if (e is File) {
+      final n = p.basename(e.path);
+      if (n.endsWith('.gpx')) {
+        final g = parseGpx(await e.readAsString());
+        for (final w in g.waypoints) {
+          if (w.mediaId != null) ids.add(w.mediaId!);
+        }
+        for (final pt in g.paths) {
+          if (pt.mediaId != null) ids.add(pt.mediaId!);
+        }
+      } else if (n.endsWith('.json')) {
+        final m = jsonDecode(await e.readAsString()) as Map<String, dynamic>;
+        for (final k in ['avatar', 'cover']) {
+          final v = m[k];
+          if (v is String && v.isNotEmpty) ids.add(v);
+        }
+      }
+    } else if (e is Directory) {
+      final name = p.basename(e.path);
+      if (name == 'media' || name == 'backups') return;
+      for (final c in await e.list().toList()) {
+        await scan(c);
+      }
+    }
+  }
+
+  await scan(root);
+  return ids;
 }
 
 /// 全局仓库：人列表的枚举与增删。

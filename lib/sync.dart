@@ -65,6 +65,9 @@ abstract class SyncRemote {
   Future<List<SyncUnit>> manifest(String personId);
   Future<List<int>> fetchUnit(String personId, SyncUnit unit);
   Future<void> pushUnit(String personId, SyncUnit unit, List<int> bytes);
+
+  /// 同步前让远端（服务器）备份其全部数据，双端都在合并前留快照。
+  Future<void> backupAll() async {}
 }
 
 String _sha(List<int> b) => sha256.convert(b).toString();
@@ -136,7 +139,7 @@ Future<List<int>> _packTrip(PersonRepository repo, String tripId) async {
   Future<void> add(String name) async {
     final f = File(p.join(dir.path, name));
     if (await f.exists()) {
-      arch.addFile(ArchiveFile(name, 0, await f.readAsBytes())..lastModTime = 0);
+      arch.addFile(ArchiveFile(name, 0, await f.readAsBytes())..lastModTime = DateTime.now().millisecondsSinceEpoch ~/ 1000);
     }
   }
 
@@ -154,7 +157,7 @@ Future<List<int>> _packTrip(PersonRepository repo, String tripId) async {
     for (final id in ids) {
       final f = repo.media.find(id);
       if (f != null) {
-        arch.addFile(ArchiveFile('media/${p.basename(f.path)}', 0, await f.readAsBytes())..lastModTime = 0);
+        arch.addFile(ArchiveFile('media/${p.basename(f.path)}', 0, await f.readAsBytes())..lastModTime = DateTime.now().millisecondsSinceEpoch ~/ 1000);
       }
     }
   }
@@ -166,21 +169,16 @@ Future<void> writeUnit(PersonRepository repo, SyncUnit u, List<int> bytes) async
   switch (u.type) {
     case 'profile':
       final f = File(p.join(repo.root.path, 'profile.json'));
-      await repo.backupBefore('profile.json', f);
       await f.writeAsBytes(bytes, flush: true);
       break;
     case 'life':
       final f = File(p.join(repo.root.path, 'life.gpx'));
-      await repo.backupBefore('life.gpx', f);
       await f.writeAsBytes(bytes, flush: true);
       await repo.setLifeUpdatedAt(u.updatedAt);
       break;
     case 'media':
       final f = File(p.join(repo.media.dir.path, u.unitId));
-      if (await f.exists()) {
-        if (u.sha256.isNotEmpty && _sha(await f.readAsBytes()) == u.sha256) return;
-        await repo.backupBefore('media_${u.unitId}', f);
-      }
+      if (await f.exists() && u.sha256.isNotEmpty && _sha(await f.readAsBytes()) == u.sha256) return;
       await f.parent.create(recursive: true);
       await f.writeAsBytes(bytes, flush: true);
       break;
@@ -201,7 +199,6 @@ Future<void> _writeTrip(PersonRepository repo, String tripId, List<int> bytes) a
       await out.writeAsBytes(f.content as List<int>, flush: true);
     }
     final dir = repo.tripDir(tripId);
-    await repo.backupBefore('trip_$tripId', dir);
     await dir.create(recursive: true);
     Future<void> put(String name) async {
       final src = File(p.join(tmp.path, name));
@@ -232,18 +229,12 @@ Future<void> deleteUnit(PersonRepository repo, SyncUnit u) async {
       break;
     case 'life':
       final f = File(p.join(repo.root.path, 'life.gpx'));
-      if (await f.exists()) {
-        await repo.backupBefore('life.gpx', f);
-        await f.delete();
-      }
+      if (await f.exists()) await f.delete();
       await repo.setLifeUpdatedAt(DateTime.fromMillisecondsSinceEpoch(0));
       break;
     case 'media':
       final f = File(p.join(repo.media.dir.path, u.unitId));
-      if (await f.exists()) {
-        await repo.backupBefore('media_${u.unitId}', f);
-        await f.delete();
-      }
+      if (await f.exists()) await f.delete();
       await repo.recordTombstone('media', u.unitId);
       break;
     case 'profile':
@@ -263,6 +254,7 @@ class SyncSummary {
 /// 与远端合并一个人的数据。local 不存在时自动创建目录。
 Future<SyncSummary> mergePerson(PersonRepository local, SyncRemote remote, String personId) async {
   await local.root.create(recursive: true);
+  await local.backupAll();
   final summary = SyncSummary();
   final localUnits = await buildManifest(local);
   final remoteUnits = await remote.manifest(personId);
@@ -325,29 +317,13 @@ Future<SyncSummary> mergePerson(PersonRepository local, SyncRemote remote, Strin
 
 /// 本地数据引用但媒体池缺失的 mediaId 集合。
 Future<Set<String>> _missingReferencedMedia(PersonRepository repo) async {
-  final ids = <String>{};
-  final person = await repo.loadPerson();
-  if (person.avatar != null) ids.add(person.avatar!);
-  final life = await repo.loadLife();
-  for (final w in life.waypoints) {
-    if (w.mediaId != null) ids.add(w.mediaId!);
-  }
-  for (final meta in await repo.listTrips()) {
-    if (meta.cover != null) ids.add(meta.cover!);
-    final b = await repo.loadTrip(meta.id);
-    if (b == null) continue;
-    for (final w in b.gpx.waypoints) {
-      if (w.mediaId != null) ids.add(w.mediaId!);
-    }
-    for (final pt in b.gpx.paths) {
-      if (pt.mediaId != null) ids.add(pt.mediaId!);
-    }
-  }
+  final ids = await repo.referencedMediaIds();
   return {for (final id in ids) if (repo.media.find(id) == null) id};
 }
 
 /// 本地与远端全部人物并集，逐个合并。
 Future<Map<String, SyncSummary>> syncAll(AppRepository local, SyncRemote remote) async {
+  await remote.backupAll();
   final localPeople = await local.listPeople();
   final remotePeople = await remote.people();
   final ids = {
@@ -425,6 +401,12 @@ class HttpSyncRemote implements SyncRemote {
     _check(r);
   }
 
+  @override
+  Future<void> backupAll() async {
+    final r = await _client.post(Uri.parse('$baseUrl/api/backup'));
+    _check(r);
+  }
+
   /// 探测服务器信息（/api/ping）。
   Future<Map<String, dynamic>> ping() async {
     final r = await _client.get(Uri.parse('$baseUrl/api/ping'));
@@ -456,4 +438,7 @@ class DirSyncRemote implements SyncRemote {
     if (unit.deleted) return;
     await writeUnit(repo, unit, bytes);
   }
+
+  @override
+  Future<void> backupAll() async {}
 }

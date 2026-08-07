@@ -65,29 +65,31 @@ void main() {
     expect((await repo.loadTrip('t1'))!.gpx.waypoints, isEmpty);
   });
 
-  test('覆盖写入前自动备份旧版本', () async {
+  test('手动备份后恢复到该版本', () async {
     final life = GpxFile(waypoints: [
       Waypoint(
         id: 'w1',
-        name: '旧版本',
+        name: '版本1',
         latLng: const LatLng(1, 1),
         createdAt: DateTime.utc(2020, 1, 1),
         updatedAt: DateTime.utc(2020, 1, 1),
       )
     ]);
     await repo.saveLife(life);
-    // 第二次写入（内容变化）
-    life.waypoints.first.name = '新版本';
+    life.waypoints.first.name = '版本2';
+    await repo.saveLife(life);
+    await repo.backupAll(); // 此刻备份的是版本2
+    life.waypoints.first.name = '版本3';
     await repo.saveLife(life);
 
     final backups = await repo.listBackups();
     expect(backups, isNotEmpty);
     await repo.restoreBackup(backups.first, 'life.gpx');
     final f = File(p.join(tmp.path, 'people', 'p1', 'life.gpx'));
-    expect(f.readAsStringSync(), contains('旧版本'));
+    expect(f.readAsStringSync(), contains('版本2'));
   });
 
-  test('行程删除前备份，可恢复', () async {
+  test('整包备份后可恢复被删行程', () async {
     final meta = Trip(
       id: 't1',
       name: '新疆8日游',
@@ -95,15 +97,68 @@ void main() {
       updatedAt: DateTime.utc(2024, 1, 1),
     );
     await repo.saveTrip(TripBundle(meta: meta, gpx: GpxFile()));
+    await repo.backupAll();
     await repo.deleteTrip('t1');
     expect(await repo.loadTrip('t1'), isNull);
 
     final backups = await repo.listBackups();
-    final tripBackup = backups.first;
-    await repo.restoreBackup(tripBackup, 'trip_t1'); // 删除备份是整目录单元
+    await repo.restoreBackupAll(backups.first);
     final restored = await repo.loadTrip('t1');
     expect(restored, isNotNull);
     expect(restored!.meta.name, '新疆8日游');
+  });
+
+  test('删除行程后清理无引用的媒体，备份中仍有引用则保留', () async {
+    for (final id in ['m1', 'm2']) {
+      final f = File(p.join(repo.media.dir.path, '$id.jpg'));
+      await f.parent.create(recursive: true);
+      await f.writeAsBytes([1, 2, 3]);
+    }
+    final w = Waypoint(
+      id: 'w1',
+      name: '带图',
+      mediaId: 'm1',
+      latLng: const LatLng(1, 1),
+      createdAt: DateTime.utc(2024, 1, 1),
+      updatedAt: DateTime.utc(2024, 1, 1),
+    );
+    await repo.saveTrip(TripBundle(
+      meta: Trip(
+        id: 't1',
+        name: 't1',
+        createdAt: DateTime.utc(2024, 1, 1),
+        updatedAt: DateTime.utc(2024, 1, 1),
+      ),
+      gpx: GpxFile(waypoints: [w]),
+    ));
+    await repo.backupAll(); // 备份里 t1.gpx 引用 m1
+
+    await repo.deleteTrip('t1');
+    expect(repo.media.find('m1'), isNotNull);
+    expect(repo.media.find('m2'), isNull);
+  });
+
+  test('备份引用检查：媒体被备份引用时保留', () async {
+    final w = Waypoint(
+      id: 'w1',
+      name: '带图',
+      mediaId: 'm1',
+      latLng: const LatLng(1, 1),
+      createdAt: DateTime.utc(2024, 1, 1),
+      updatedAt: DateTime.utc(2024, 1, 1),
+    );
+    await repo.saveTrip(TripBundle(
+      meta: Trip(
+        id: 't1',
+        name: 't1',
+        createdAt: DateTime.utc(2024, 1, 1),
+        updatedAt: DateTime.utc(2024, 1, 1),
+      ),
+      gpx: GpxFile(waypoints: [w]),
+    ));
+    await repo.backupAll();
+    expect(await repo.mediaReferencedInBackups('m1'), isTrue);
+    expect(await repo.mediaReferencedInBackups('nope'), isFalse);
   });
 
   test('媒体池写入/查找/删除', () async {

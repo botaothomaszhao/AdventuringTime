@@ -5,6 +5,7 @@ import 'package:adventuring_time/models.dart';
 import 'package:adventuring_time/storage.dart';
 import 'package:adventuring_time/sync.dart';
 import 'package:adventuring_time/transfer.dart';
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:path/path.dart' as p;
@@ -141,6 +142,29 @@ void main() {
     expect((await imported.loadTrip('t1'))!.meta.name, '行程');
     expect((await imported.loadLife()).waypointById('ev1'), isNotNull);
     expect(imported.media.find('m1'), isNotNull);
+  });
+
+  test('导出整包只包含被引用的媒体', () async {
+    for (final (id, bytes) in [('m1', [1, 2, 3]), ('m2', [4, 5, 6])]) {
+      final mf = File(p.join(local.media.dir.path, '$id.jpg'));
+      await mf.parent.create(recursive: true);
+      await mf.writeAsBytes(bytes);
+    }
+    await local.saveLife(GpxFile(waypoints: [
+      Waypoint(
+          id: 'ev1',
+          name: '事件',
+          mediaId: 'm1',
+          latLng: const LatLng(30, 120),
+          createdAt: DateTime.utc(2024, 1, 1),
+          updatedAt: DateTime.utc(2024, 1, 1)),
+    ]));
+
+    final bytes = await exportPersonPack(local);
+    final arch = ZipDecoder().decodeBytes(bytes);
+    final names = [for (final f in arch.files) f.name];
+    expect(names, contains('media/m1.jpg'));
+    expect(names, isNot(contains('media/m2.jpg')));
   });
 
   test('整包导入合并：已存在人物选合并，两端数据并集', () async {
