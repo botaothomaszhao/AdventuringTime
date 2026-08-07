@@ -179,9 +179,10 @@ class PersonRepository {
   }
 
   /// 全量备份：仅复制 profile/life/各行程（媒体不进备份，始终留在共用媒体池），
-  /// 存到 `backups/<ts>/`（同步前与手动触发时调用）。
-  Future<void> backupAll() async {
-    final dest = Directory(p.join(root.path, 'backups', _timestamp()));
+  /// 存到 `backups/<ts>[-<suffix>]/`（同步前、覆盖导入前与手动触发时调用）。
+  Future<void> backupAll({String? suffix}) async {
+    final name = suffix == null ? _timestamp() : '${_timestamp()}-$suffix';
+    final dest = Directory(p.join(root.path, 'backups', name));
     await dest.create(recursive: true);
     Future<void> put(String name, File src) async {
       if (await src.exists()) await src.copy(p.join(dest.path, name));
@@ -442,16 +443,5 @@ class AppRepository {
   Future<void> deletePerson(String personId) async {
     final dir = personDir(personId);
     if (await dir.exists()) await dir.delete(recursive: true);
-  }
-
-  /// 把整个人目录移到回收目录（data/trash/<时间戳>-<personId>），覆盖导入用。
-  Future<void> trashPerson(String personId) async {
-    final src = personDir(personId);
-    if (!await src.exists()) return;
-    final trash = Directory(p.join(peopleRoot.parent.path, 'trash'));
-    await trash.create(recursive: true);
-    await PersonRepository._copyTree(
-        src, Directory(p.join(trash.path, '${DateTime.now().millisecondsSinceEpoch}-$personId')));
-    await src.delete(recursive: true);
   }
 }

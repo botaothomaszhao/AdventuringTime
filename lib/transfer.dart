@@ -10,7 +10,7 @@ import 'storage.dart';
 import 'sync.dart';
 
 /// 人物整包导入导出（§8.2）：.atrip zip {profile.json, life.gpx, trips/<id>/…, media/…}。
-/// 导入时 personId 已存在 → 覆盖（旧目录进回收站 trash/）/合并（复用同步合并逻辑）。
+/// 导入时 personId 已存在 → 覆盖（旧数据先进备份）/合并（复用同步合并逻辑）。
 
 /// 导出当前人物整包为 .atrip 字节（媒体只打被引用的）。
 Future<List<int>> exportPersonPack(PersonRepository repo) => _packData(repo.root);
@@ -103,7 +103,7 @@ Future<String?> packPersonId(List<int> bytes) async {
 }
 
 /// 导入 .atrip 到 people 根，返回 personId。
-/// mode：'overwrite' 覆盖（旧目录进回收站）/ 'merge' 合并（同步合并逻辑）/ 其余=直接新建。
+/// mode：'overwrite' 覆盖（旧数据先进备份）/ 'merge' 合并（同步合并逻辑）/ 其余=直接新建。
 Future<String> importPersonPack(AppRepository appRepo, List<int> bytes, {String? mode}) async {
   await appRepo.peopleRoot.create(recursive: true);
   final tmp = await Directory.systemTemp.createTemp('atrip_import');
@@ -115,7 +115,8 @@ Future<String> importPersonPack(AppRepository appRepo, List<int> bytes, {String?
     final target = appRepo.personDir(personId);
     if (await target.exists()) {
       if (mode == 'overwrite') {
-        await appRepo.trashPerson(personId);
+        await PersonRepository(target).backupAll(suffix: 'overwrite');
+        await target.delete(recursive: true);
         await tmp.rename(target.path);
       } else if (mode == 'merge') {
         await mergePerson(PersonRepository(target), DirSyncRemote(PersonRepository(tmp)), personId);

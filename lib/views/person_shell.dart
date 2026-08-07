@@ -147,7 +147,7 @@ class _PersonHomeState extends ConsumerState<PersonHome>
           context: context,
           builder: (c) => AlertDialog(
             title: const Text('人物已存在'),
-            content: const Text('选择合并可保留两端数据，冲突以较新版本为准；覆盖会替换当前数据。'),
+            content: const Text('选择合并可保留两端数据，冲突以较新版本为准；覆盖会替换当前数据（原数据将先进备份）。'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(c),
