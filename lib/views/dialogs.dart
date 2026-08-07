@@ -324,6 +324,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
             _PhotoList(
               personId: widget.personId,
               mediaIds: _mediaIds,
+              initial: widget.existing?.mediaIds ?? const [],
               onChanged: (v) => setState(() => _mediaIds = v),
             ),
           ],
@@ -375,11 +376,13 @@ class _MediaThumb extends ConsumerWidget {
 class _PhotoList extends ConsumerStatefulWidget {
   final String personId;
   final List<String> mediaIds;
+  final List<String> initial; // 对话框打开时的照片（编辑前），用于区分本次新上传
   final ValueChanged<List<String>> onChanged;
 
   const _PhotoList({
     required this.personId,
     required this.mediaIds,
+    this.initial = const [],
     required this.onChanged,
   });
 
@@ -397,6 +400,14 @@ class _PhotoListState extends ConsumerState<_PhotoList> {
         .addMedia(ext, bytes);
     ref.invalidate(mediaListProvider(widget.personId));
     widget.onChanged([...widget.mediaIds, id]);
+  }
+
+  Future<void> _remove(String id) async {
+    widget.onChanged([for (final m in widget.mediaIds) if (m != id) m]);
+    // 本次会话新上传的照片尚未被任何数据引用，点叉时立即按引用检查删除文件。
+    if (!widget.initial.contains(id)) {
+      await _deleteMediaChecked(ref, widget.personId, id);
+    }
   }
 
   @override
@@ -419,10 +430,7 @@ class _PhotoListState extends ConsumerState<_PhotoList> {
                 top: 2,
                 right: 2,
                 child: GestureDetector(
-                  onTap: () => widget.onChanged([
-                    for (final m in widget.mediaIds)
-                      if (m != id) m,
-                  ]),
+                  onTap: () => _remove(id),
                   child: Container(
                     decoration: const BoxDecoration(
                       color: Colors.black54,
@@ -581,12 +589,13 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
             '照片',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           ),
-          const SizedBox(height: 8),
-          _PhotoList(
-            personId: widget.personId,
-            mediaIds: _mediaIds,
-            onChanged: (v) => setState(() => _mediaIds = v),
-          ),
+            const SizedBox(height: 8),
+            _PhotoList(
+              personId: widget.personId,
+              mediaIds: _mediaIds,
+              initial: widget.existing?.mediaIds ?? const [],
+              onChanged: (v) => setState(() => _mediaIds = v),
+            ),
         ],
       ),
       actions: [
@@ -783,6 +792,7 @@ class _TripDialogState extends ConsumerState<_TripDialog> {
             _PhotoList(
               personId: widget.personId,
               mediaIds: _mediaIds,
+              initial: widget.existing?.mediaIds ?? const [],
               onChanged: (v) => setState(() => _mediaIds = v),
             ),
           ],
@@ -918,11 +928,42 @@ Future<void> deleteMediaIfUnused(
     for (final w in waypoints) ...w.mediaIds,
     for (final p in paths) ...p.mediaIds,
   };
+  final d = ref.read(personDataProvider(personId)).valueOrNull;
+  if (d != null) {
+    for (final t in d.trips) {
+      used.addAll(t.meta.mediaIds);
+    }
+  }
   if (!used.contains(mediaId)) {
     final repo = await ref.read(personRepoProvider(personId).future);
     if (await repo.mediaReferencedInBackups(mediaId)) return;
     await ref.read(personDataProvider(personId).notifier).deleteMedia(mediaId);
     ref.invalidate(mediaListProvider(personId));
+  }
+}
+
+/// 按当前数据引用集检查后删除单个媒体文件。
+Future<void> _deleteMediaChecked(WidgetRef ref, String personId, String mediaId) async {
+  final d = ref.read(personDataProvider(personId)).valueOrNull;
+  final waypoints = d == null
+      ? const <Waypoint>[]
+      : [...d.life.waypoints, for (final t in d.trips) ...t.gpx.waypoints];
+  final paths =
+      d == null ? const <PathData>[] : [for (final t in d.trips) ...t.gpx.paths];
+  await deleteMediaIfUnused(ref, personId, mediaId,
+      waypoints: waypoints, paths: paths);
+}
+
+/// 编辑保存后清理被移出表单的媒体：before 为编辑前的媒体列表，引用检查后物理删除。
+Future<void> cleanupRemovedMedia(
+  WidgetRef ref,
+  String personId,
+  List<String> before,
+  List<String> after,
+) async {
+  final removed = [for (final id in before) if (!after.contains(id)) id];
+  for (final id in removed) {
+    await _deleteMediaChecked(ref, personId, id);
   }
 }
 

@@ -375,6 +375,7 @@ class _MapPageState extends ConsumerState<MapPage>
               leading: const Icon(Icons.edit_outlined),
               title: const Text('编辑'),
               onTap: () async {
+                final before = List<String>.of(w.mediaIds);
                 final form = await showWaypointDialog(
                   context,
                   personId: personId,
@@ -393,6 +394,7 @@ class _MapPageState extends ConsumerState<MapPage>
                   await notifier.saveTripWaypoint(tripId, w);
                 }
                 _closeSheet();
+                await cleanupRemovedMedia(ref, personId, before, w.mediaIds);
               },
             ),
             ListTile(
@@ -457,6 +459,7 @@ class _MapPageState extends ConsumerState<MapPage>
               leading: const Icon(Icons.edit_note_outlined),
               title: const Text('编辑信息'),
               onTap: () async {
+                final before = List<String>.of(p.mediaIds);
                 final form = await showPathDialog(
                   context,
                   personId: personId,
@@ -470,6 +473,7 @@ class _MapPageState extends ConsumerState<MapPage>
                     .read(personDataProvider(personId).notifier)
                     .saveTripPath(tripId, p);
                 _closeSheet();
+                await cleanupRemovedMedia(ref, personId, before, p.mediaIds);
               },
             ),
             ListTile(
@@ -524,6 +528,7 @@ class _MapPageState extends ConsumerState<MapPage>
               leading: const Icon(Icons.edit_outlined),
               title: const Text('编辑行程'),
               onTap: () async {
+                final before = List<String>.of(t.meta.mediaIds);
                 final form = await showTripDialog(
                   context,
                   personId: personId,
@@ -536,6 +541,7 @@ class _MapPageState extends ConsumerState<MapPage>
                     .read(personDataProvider(personId).notifier)
                     .saveTripMeta(t.meta);
                 _closeSheet();
+                await cleanupRemovedMedia(ref, personId, before, t.meta.mediaIds);
               },
             ),
             ListTile(
@@ -1518,6 +1524,7 @@ class _MapPageState extends ConsumerState<MapPage>
 
   Future<void> _editPathInfo(PathData p) async {
     final key = _editPathKey()!;
+    final before = List<String>.of(p.mediaIds);
     final form = await showPathDialog(
       context,
       personId: widget.personId,
@@ -1530,6 +1537,7 @@ class _MapPageState extends ConsumerState<MapPage>
     await ref
         .read(personDataProvider(widget.personId).notifier)
         .saveTripPath(key.$1, p);
+    await cleanupRemovedMedia(ref, widget.personId, before, p.mediaIds);
   }
 
   /// 路径编辑对话框内的删除：确认后删除并关闭对话框与编辑模式。

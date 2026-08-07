@@ -134,11 +134,13 @@ class TimelinePage extends ConsumerWidget {
             final notifier = ref.read(personDataProvider(personId).notifier);
             switch (v) {
               case 'edit':
+                final before = List<String>.of(t.meta.mediaIds);
                 final form = await showTripDialog(context, personId: personId, existing: t.meta);
                 if (form == null) return;
                 form.applyTo(t.meta);
                 t.meta.updatedAt = DateTime.now();
                 await notifier.saveTripMeta(t.meta);
+                await cleanupRemovedMedia(ref, personId, before, t.meta.mediaIds);
               case 'delete':
                 final ok = await confirmDialog(context, '删除行程', '确定删除该行程（含其中地点与路径）？');
                 if (!ok) return;

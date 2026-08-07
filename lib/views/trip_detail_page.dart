@@ -214,6 +214,7 @@ class TripDetailPage extends ConsumerWidget {
                     onTap: () async {
                       if (item is PathData) {
                         final p = item;
+                        final before = List<String>.of(p.mediaIds);
                         final form = await showPathDialog(
                           context,
                           personId: personId,
@@ -224,6 +225,7 @@ class TripDetailPage extends ConsumerWidget {
                         form.applyTo(p);
                         p.updatedAt = DateTime.now();
                         await notifier.saveTripPath(tripId, p);
+                        await cleanupRemovedMedia(ref, personId, before, p.mediaIds);
                       } else {
                         Navigator.pop(context);
                         ref.read(mapPageActionProvider(personId).notifier).focusOn(
