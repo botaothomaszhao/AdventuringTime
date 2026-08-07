@@ -42,6 +42,23 @@ flutter build apk --release    # 安卓 release（debug key 签名）；成功�
 - 墙内网络：瓦片用 Esri（默认，WGS-84；国内部分区域高等级无数据，可换 Carto Voyager——实测墙内可用）；搜索/反地理编码用 Photon。OSM/Nominatim 不可用，勿切换验证
 - **版本号规则**：`pubspec.yaml` 的 `version: 1.0.x+buildNumber`，每次发 APK 时 versionName 最后一位自增、buildNumber 同步递增（Android 覆盖安装强校验 versionCode 单调增大，buildNumber 不能回退）；同时同步更新 `lib/version.dart` 的 `appVersion`（设置页"关于"显示，现仅 versionName 不带 buildNumber），否则关于里的版本号会落后
 
+## 启动应用（避免卡死/重复进程占用）
+
+**不要用 `Start-Process flutter.bat` 或直接 `flutter run` 起后台**：opencode 终端会等待整个进程树结束（flutter 工具派生 dart/app 子进程后仍不返回），表现为命令看似没执行完。**改用 WScript.Shell.Run 让 Flutter 进程脱离进程树监控（成为"孤儿"），脚本返回后外部工具不再阻塞**：
+
+```powershell
+# 先杀残留进程（旧实例占用 exe 会导致构建/运行失败；重复实例也会互相干扰）
+Get-Process -Name "adventuring_time" -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 2
+$ws = New-Object -ComObject WScript.Shell
+$cmd = 'cmd /c "D:\flutter\bin\flutter.bat run -d windows > C:\Users\botao\AppData\Local\Temp\opencode\flutter_run.log 2> C:\Users\botao\AppData\Local\Temp\opencode\flutter_run_err.log"'
+$ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
+# 轮询进程出现（约 30-90s），再 sleep 十几秒等数据/瓦片就绪；从日志 grep "VM Service" 拿调试地址
+```
+
+- `Start-Process` 直接跑 flutter.bat 会阻塞：flutter 进程树（flutter→dart→app）挂在 Start-Process 派生的子进程下，外部终端一直等待整棵树结束
+- 退出后统一 `Get-Process adventuring_time | Stop-Process -Force` 清理，避免下次启动时旧实例占用
+
 ## 架构（lib/）
 
 | 文件 | 职责 |
