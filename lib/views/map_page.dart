@@ -199,18 +199,36 @@ class _MapPageState extends ConsumerState<MapPage>
   }
 
   /// 点击位置与线段 a→b 的屏幕像素距离。
+  /// 与 PolylineLayer 一致：projectList 对相邻点做 world 调整（跨 180° 时
+  /// 翻转 ±360° 显示最短路径）；同时 workAcrossWorlds 会把跨世界线段重复
+  /// 绘制到相邻 world，故遍历相邻副本取最近距离。
   double _distToSegmentPx(LatLng p, LatLng a, LatLng b) {
     final cam = _mapCtrl.camera;
+    final wPx = cam.crs.scale(cam.zoom);
     final sp = cam.latLngToScreenOffset(p);
     final sa = cam.latLngToScreenOffset(a);
-    final sb = cam.latLngToScreenOffset(b);
-    final ab = sb - sa;
-    final ap = sp - sa;
-    final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
-    final t = len2 == 0
-        ? 0.0
-        : ((ap.dx * ab.dx + ap.dy * ab.dy) / len2).clamp(0.0, 1.0);
-    return (sp - (sa + ab * t)).distance;
+    var sb = cam.latLngToScreenOffset(b);
+    if (sb.dx - sa.dx > wPx / 2) {
+      sb -= Offset(wPx, 0);
+    } else if (sb.dx - sa.dx < -wPx / 2) {
+      sb += Offset(wPx, 0);
+    }
+    double dist(Offset a2, Offset b2) {
+      final ab = b2 - a2;
+      final ap = sp - a2;
+      final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
+      final t = len2 == 0
+          ? 0.0
+          : ((ap.dx * ab.dx + ap.dy * ab.dy) / len2).clamp(0.0, 1.0);
+      return (sp - (a2 + ab * t)).distance;
+    }
+
+    var best = dist(sa, sb);
+    for (final s in [-wPx, wPx]) {
+      final d = dist(sa + Offset(s, 0), sb + Offset(s, 0));
+      if (d < best) best = d;
+    }
+    return best;
   }
 
   /// 点击位置命中检测：路径优先（路径有编辑操作），其次行程连接线；未命中则关闭卡片。
@@ -407,6 +425,14 @@ class _MapPageState extends ConsumerState<MapPage>
                   '确定删除该${w.isEvent ? '长期地点' : '地点'}？',
                 );
                 if (!ok) return;
+                final notifier = ref.read(
+                  personDataProvider(personId).notifier,
+                );
+                if (tripId == null) {
+                  await notifier.deleteLifeWaypoint(w.id);
+                } else {
+                  await notifier.deleteTripWaypoint(tripId, w.id);
+                }
                 for (final id in w.mediaIds) {
                   await deleteMediaIfUnused(
                     ref,
@@ -415,14 +441,6 @@ class _MapPageState extends ConsumerState<MapPage>
                     waypoints: _allWaypoints(personId),
                     paths: _allPaths(personId),
                   );
-                }
-                final notifier = ref.read(
-                  personDataProvider(personId).notifier,
-                );
-                if (tripId == null) {
-                  await notifier.deleteLifeWaypoint(w.id);
-                } else {
-                  await notifier.deleteTripWaypoint(tripId, w.id);
                 }
                 _closeSheet();
               },
@@ -482,6 +500,9 @@ class _MapPageState extends ConsumerState<MapPage>
               onTap: () async {
                 final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
                 if (!ok) return;
+                await ref
+                    .read(personDataProvider(personId).notifier)
+                    .deleteTripPath(tripId, p.id);
                 for (final id in p.mediaIds) {
                   await deleteMediaIfUnused(
                     ref,
@@ -491,9 +512,6 @@ class _MapPageState extends ConsumerState<MapPage>
                     paths: _allPaths(personId),
                   );
                 }
-                await ref
-                    .read(personDataProvider(personId).notifier)
-                    .deleteTripPath(tripId, p.id);
                 _closeSheet();
               },
             ),
@@ -1548,6 +1566,9 @@ class _MapPageState extends ConsumerState<MapPage>
   ) async {
     final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
     if (!ok) return;
+    await ref
+        .read(personDataProvider(personId).notifier)
+        .deleteTripPath(tripId, p.id);
     for (final id in p.mediaIds) {
       await deleteMediaIfUnused(
         ref,
@@ -1557,9 +1578,6 @@ class _MapPageState extends ConsumerState<MapPage>
         paths: _allPaths(personId),
       );
     }
-    await ref
-        .read(personDataProvider(personId).notifier)
-        .deleteTripPath(tripId, p.id);
     if (context.mounted) Navigator.pop(context);
     if (mounted) {
       setState(() {
@@ -1574,6 +1592,9 @@ class _MapPageState extends ConsumerState<MapPage>
     final key = _editPathKey()!;
     final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
     if (!ok) return;
+    await ref
+        .read(personDataProvider(widget.personId).notifier)
+        .deleteTripPath(key.$1, p.id);
     for (final id in p.mediaIds) {
       await deleteMediaIfUnused(
         ref,
@@ -1583,9 +1604,6 @@ class _MapPageState extends ConsumerState<MapPage>
         paths: _allPaths(widget.personId),
       );
     }
-    await ref
-        .read(personDataProvider(widget.personId).notifier)
-        .deleteTripPath(key.$1, p.id);
     if (mounted) {
       setState(() {
         _mode = _EditMode.none;

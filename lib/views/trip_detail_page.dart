@@ -5,7 +5,6 @@ import '../lifecycle.dart';
 import '../models.dart';
 import '../providers.dart';
 import 'dialogs.dart';
-import 'person_shell.dart';
 import 'widgets.dart';
 
 /// 行程详情：内联编辑基本信息与起终点、统计摘要、按日期分组的路径与地点、底部照片墙。
@@ -219,7 +218,7 @@ class TripDetailPage extends ConsumerWidget {
                           context,
                           personId: personId,
                           existing: p,
-                          onDelete: () => _deletePathFromPage(context, ref, d, p, tripId),
+                          onDelete: () => _deletePathFromPage(context, ref, p, tripId),
                         );
                         if (form == null) return;
                         form.applyTo(p);
@@ -227,10 +226,19 @@ class TripDetailPage extends ConsumerWidget {
                         await notifier.saveTripPath(tripId, p);
                         await cleanupRemovedMedia(ref, personId, before, p.mediaIds);
                       } else {
-                        Navigator.pop(context);
-                        ref.read(mapPageActionProvider(personId).notifier).focusOn(
-                              (item as Waypoint).latLng,
-                            );
+                        final w = item as Waypoint;
+                        final before = List<String>.of(w.mediaIds);
+                        final form = await showWaypointDialog(
+                          context,
+                          personId: personId,
+                          existing: w,
+                          tripId: tripId,
+                        );
+                        if (form == null) return;
+                        form.applyTo(w);
+                        w.updatedAt = DateTime.now();
+                        await notifier.saveTripWaypoint(tripId, w);
+                        await cleanupRemovedMedia(ref, personId, before, w.mediaIds);
                       }
                     },
                   ),
@@ -292,22 +300,24 @@ class TripDetailPage extends ConsumerWidget {
   Future<void> _deletePathFromPage(
     BuildContext context,
     WidgetRef ref,
-    PersonData d,
     PathData p,
     String tripId,
   ) async {
     final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
     if (!ok) return;
-    for (final id in p.mediaIds) {
-      await deleteMediaIfUnused(
-        ref,
-        personId,
-        id,
-        waypoints: _allWaypoints(d),
-        paths: _allPaths(d),
-      );
-    }
     await ref.read(personDataProvider(personId).notifier).deleteTripPath(tripId, p.id);
+    final nd = ref.read(personDataProvider(personId)).valueOrNull;
+    if (nd != null) {
+      for (final id in p.mediaIds) {
+        await deleteMediaIfUnused(
+          ref,
+          personId,
+          id,
+          waypoints: _allWaypoints(nd),
+          paths: _allPaths(nd),
+        );
+      }
+    }
     if (context.mounted) Navigator.pop(context);
   }
 }

@@ -14,12 +14,12 @@ class StatsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(personDataProvider(personId));
-    final media = ref.watch(mediaListProvider(personId));
+    final used = ref.watch(referencedMediaIdsProvider(personId));
     return data.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('加载失败：$e')),
       data: (d) {
-        final mediaCount = media.maybeWhen(data: (l) => l.length, orElse: () => 0);
+        final mediaCount = used.maybeWhen(data: (s) => s.length, orElse: () => 0);
         final stats = personStats(d.life.events, d.trips, mediaCount);
         return ListView(
           padding: const EdgeInsets.all(12),

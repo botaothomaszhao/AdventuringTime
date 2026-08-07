@@ -88,14 +88,17 @@ class TimelinePage extends ConsumerWidget {
               case 'delete':
                 final ok = await confirmDialog(context, '删除长期地点', '确定删除该长期地点？');
                 if (!ok) return;
-                for (final id in w.mediaIds) {
-                  await deleteMediaIfUnused(ref, personId, id,
-                      waypoints: _allWaypoints(d), paths: _allPaths(d));
-                }
                 if (tripId == null) {
                   await notifier.deleteLifeWaypoint(w.id);
                 } else {
                   await notifier.deleteTripWaypoint(tripId, w.id);
+                }
+                final nd = ref.read(personDataProvider(personId)).valueOrNull;
+                if (nd != null) {
+                  for (final id in w.mediaIds) {
+                    await deleteMediaIfUnused(ref, personId, id,
+                        waypoints: _allWaypoints(nd), paths: _allPaths(nd));
+                  }
                 }
             }
           },

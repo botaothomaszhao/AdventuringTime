@@ -278,6 +278,12 @@ final mediaListProvider = FutureProvider.family<List<File>, String>((ref, person
   return repo.media.listAll();
 });
 
+/// 当前数据实际引用的 mediaId 集合（不含备份引用）。
+final referencedMediaIdsProvider = FutureProvider.family<Set<String>, String>((ref, personId) async {
+  final repo = await ref.watch(personRepoProvider(personId).future);
+  return repo.referencedMediaIds();
+});
+
 /// 设置：瓦片源 URL。墙内默认 Carto Voyager，可在设置中切换。
 final tileUrlProvider = FutureProvider<String>((ref) async {
   final prefs = await SharedPreferences.getInstance();
