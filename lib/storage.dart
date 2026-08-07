@@ -369,7 +369,7 @@ class PersonRepository {
 
 /// 收集目录中所有 gpx/json 引用的 mediaId 集合（用于导出只打被引用媒体、孤儿清理）。
 /// 兼容数据目录（profile.json/life.gpx/trips/<id>/…）与备份目录（顶层平铺）两种布局；
-/// 跳过 media/ 与 backups/ 目录。媒体引用来自 Waypoint/PathData.mediaId、Trip.cover、Person.avatar。
+/// 跳过 media/ 与 backups/ 目录。媒体引用来自 Waypoint/PathData.mediaIds、Trip.mediaIds、Person.avatar。
 Future<Set<String>> collectReferencedMediaIds(Directory root) async {
   final ids = <String>{};
   Future<void> scan(FileSystemEntity e) async {
@@ -378,16 +378,20 @@ Future<Set<String>> collectReferencedMediaIds(Directory root) async {
       if (n.endsWith('.gpx')) {
         final g = parseGpx(await e.readAsString());
         for (final w in g.waypoints) {
-          if (w.mediaId != null) ids.add(w.mediaId!);
+          ids.addAll(w.mediaIds);
         }
         for (final pt in g.paths) {
-          if (pt.mediaId != null) ids.add(pt.mediaId!);
+          ids.addAll(pt.mediaIds);
         }
       } else if (n.endsWith('.json')) {
         final m = jsonDecode(await e.readAsString()) as Map<String, dynamic>;
-        for (final k in ['avatar', 'cover']) {
-          final v = m[k];
-          if (v is String && v.isNotEmpty) ids.add(v);
+        final av = m['avatar'];
+        if (av is String && av.isNotEmpty) ids.add(av);
+        final ml = m['mediaIds'];
+        if (ml is List) {
+          for (final v in ml) {
+            if (v is String && v.isNotEmpty) ids.add(v);
+          }
         }
       }
     } else if (e is Directory) {

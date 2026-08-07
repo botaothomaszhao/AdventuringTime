@@ -42,13 +42,41 @@ Future<int?> pickValueDialog(
   );
 }
 
+/// 按精度选择时间：年=年份列表，月=年+月，日=日历。供地点对话框/详情页复用。
+Future<DateTime?> pickTimeWithPrecision(
+  BuildContext context, {
+  required TimePrecision precision,
+  DateTime? current,
+}) async {
+  DateTime? t;
+  switch (precision) {
+    case TimePrecision.year:
+      final y = await pickValueDialog(context, from: 1900, to: 2100, unit: '年');
+      if (y != null) t = DateTime(y, 1, 1);
+    case TimePrecision.month:
+      final y = await pickValueDialog(context, from: 1900, to: 2100, unit: '年');
+      if (y == null) return null;
+      final m = await pickValueDialog(context, from: 1, to: 12, unit: '月');
+      if (m != null) t = DateTime(y, m, 1);
+    case TimePrecision.day:
+      final now = current ?? DateTime.now();
+      t = await showDatePicker(
+        context: context,
+        initialDate: now,
+        firstDate: DateTime(1900),
+        lastDate: DateTime(2100),
+      );
+  }
+  return t;
+}
+
 /// 地点/长期地点表单结果。
 class WaypointForm {
   final String name;
   final String? desc;
   final DateTime? time;
   final TimePrecision? precision;
-  final String? mediaId;
+  final List<String> mediaIds;
   final bool isEvent;
   final String? tripId; // 普通地点的所属行程（长期地点为 null）
 
@@ -57,7 +85,7 @@ class WaypointForm {
     this.desc,
     this.time,
     this.precision,
-    this.mediaId,
+    this.mediaIds = const [],
     this.isEvent = false,
     this.tripId,
   });
@@ -68,7 +96,7 @@ class WaypointForm {
     w.desc = desc;
     w.time = time;
     w.timePrecision = precision;
-    w.mediaId = mediaId;
+    w.mediaIds = mediaIds;
     w.isEvent = isEvent;
   }
 }
@@ -121,7 +149,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
   late final TextEditingController _desc;
   DateTime? _time;
   TimePrecision? _precision;
-  String? _mediaId;
+  List<String> _mediaIds = [];
   late bool _isEvent;
   String? _tripId;
 
@@ -133,7 +161,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
     _desc = TextEditingController(text: e?.desc ?? '');
     _time = e?.time ?? widget.presetTime;
     _precision = e?.timePrecision;
-    _mediaId = e?.mediaId;
+    _mediaIds = e == null ? [] : [...e.mediaIds];
     _isEvent = e?.isEvent ?? false;
     _tripId = widget.tripId;
     if (widget.existing == null && _name.text.isEmpty) {
@@ -163,25 +191,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
   /// 按当前精度选择时间：年=年份列表，月=年+月，日=日历。
   Future<void> _pickTime() async {
     final precision = _precision ?? TimePrecision.day;
-    DateTime? t;
-    switch (precision) {
-      case TimePrecision.year:
-        final y = await pickValueDialog(context, from: 1900, to: 2100, unit: '年');
-        if (y != null) t = DateTime(y, 1, 1);
-      case TimePrecision.month:
-        final y = await pickValueDialog(context, from: 1900, to: 2100, unit: '年');
-        if (y == null) return;
-        final m = await pickValueDialog(context, from: 1, to: 12, unit: '月');
-        if (m != null) t = DateTime(y, m, 1);
-      case TimePrecision.day:
-        final now = _time ?? DateTime.now();
-        t = await showDatePicker(
-          context: context,
-          initialDate: now,
-          firstDate: DateTime(1900),
-          lastDate: DateTime(2100),
-        );
-    }
+    final t = await pickTimeWithPrecision(context, precision: precision, current: _time);
     if (t == null) return;
     setState(() {
       _time = t;
@@ -212,15 +222,6 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
     );
   }
 
-  Future<void> _pickImage() async {
-    final img = await pickImageBytes();
-    if (img == null) return;
-    final (ext, bytes) = img;
-    final id = await ref.read(personDataProvider(widget.personId).notifier).addMedia(ext, bytes);
-    ref.invalidate(mediaListProvider(widget.personId));
-    setState(() => _mediaId = id);
-  }
-
   void _submit() {
     final name = _name.text.trim();
     if (name.isEmpty) {
@@ -248,7 +249,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
         desc: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
         time: _time,
         precision: _precision,
-        mediaId: _mediaId,
+        mediaIds: _mediaIds,
         isEvent: _isEvent,
         tripId: _isEvent ? null : _tripId,
       ),
@@ -263,6 +264,7 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('坐标：${pos == null ? '—' : formatLatLng(pos)}'),
             const SizedBox(height: 12),
@@ -314,21 +316,15 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
               _tripPicker(),
             ],
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(child: _MediaThumb(personId: widget.personId, mediaId: _mediaId)),
-                TextButton.icon(
-                  onPressed: _pickImage,
-                  icon: const Icon(Icons.add_photo_alternate_outlined),
-                  label: const Text('附图'),
-                ),
-                if (_mediaId != null)
-                  IconButton(
-                    onPressed: () => setState(() => _mediaId = null),
-                    icon: const Icon(Icons.delete_outline),
-                    tooltip: '移除图片',
-                  ),
-              ],
+            Text(
+              '照片',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 8),
+            _PhotoList(
+              personId: widget.personId,
+              mediaIds: _mediaIds,
+              onChanged: (v) => setState(() => _mediaIds = v),
             ),
           ],
         ),
@@ -375,19 +371,101 @@ class _MediaThumb extends ConsumerWidget {
   }
 }
 
+/// 对话框内照片列表：缩略图左对齐，点击预览大图，右上角删除，末尾添加。
+class _PhotoList extends ConsumerStatefulWidget {
+  final String personId;
+  final List<String> mediaIds;
+  final ValueChanged<List<String>> onChanged;
+
+  const _PhotoList({
+    required this.personId,
+    required this.mediaIds,
+    required this.onChanged,
+  });
+
+  @override
+  ConsumerState<_PhotoList> createState() => _PhotoListState();
+}
+
+class _PhotoListState extends ConsumerState<_PhotoList> {
+  Future<void> _add() async {
+    final img = await pickImageBytes();
+    if (img == null) return;
+    final (ext, bytes) = img;
+    final id = await ref
+        .read(personDataProvider(widget.personId).notifier)
+        .addMedia(ext, bytes);
+    ref.invalidate(mediaListProvider(widget.personId));
+    widget.onChanged([...widget.mediaIds, id]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final id in widget.mediaIds)
+          Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: GestureDetector(
+                  onTap: () => showMediaPreview(context, widget.personId, id),
+                  child: _MediaThumb(personId: widget.personId, mediaId: id),
+                ),
+              ),
+              Positioned(
+                top: 2,
+                right: 2,
+                child: GestureDetector(
+                  onTap: () => widget.onChanged([
+                    for (final m in widget.mediaIds)
+                      if (m != id) m,
+                  ]),
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      color: Colors.black54,
+                      shape: BoxShape.circle,
+                    ),
+                    padding: const EdgeInsets.all(2),
+                    child: const Icon(Icons.close, size: 14, color: Colors.white),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        InkWell(
+          onTap: _add,
+          borderRadius: BorderRadius.circular(4),
+          child: Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Icon(Icons.add_a_photo_outlined),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// 路径表单结果。
 class PathForm {
   final String name;
   final String? desc;
-  final String? mediaId;
+  final List<String> mediaIds;
   final DateTime? time; // 手绘路径的时间（写入首点，供轨迹线排序）
 
-  const PathForm({required this.name, this.desc, this.mediaId, this.time});
+  const PathForm({required this.name, this.desc, this.mediaIds = const [], this.time});
 
   void applyTo(PathData p) {
     p.name = name;
     p.desc = desc;
-    p.mediaId = mediaId;
+    p.mediaIds = mediaIds;
     if (time != null && p.points.isNotEmpty) {
       p.points[0] = TrackPoint(p.points[0].latLng, time);
     }
@@ -420,7 +498,7 @@ class _PathDialog extends ConsumerStatefulWidget {
 class _PathDialogState extends ConsumerState<_PathDialog> {
   late final TextEditingController _name;
   late final TextEditingController _desc;
-  String? _mediaId;
+  List<String> _mediaIds = [];
   DateTime? _time;
   TimePrecision? _precision;
 
@@ -429,7 +507,7 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
     super.initState();
     _name = TextEditingController(text: widget.existing?.name ?? '');
     _desc = TextEditingController(text: widget.existing?.desc ?? '');
-    _mediaId = widget.existing?.mediaId;
+    _mediaIds = widget.existing == null ? [] : [...widget.existing!.mediaIds];
     _time = widget.existing?.points.firstOrNull?.time;
     _precision = null;
   }
@@ -441,37 +519,10 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
     super.dispose();
   }
 
-  Future<void> _pickImage() async {
-    final img = await pickImageBytes();
-    if (img == null) return;
-    final (ext, bytes) = img;
-    final id = await ref.read(personDataProvider(widget.personId).notifier).addMedia(ext, bytes);
-    ref.invalidate(mediaListProvider(widget.personId));
-    setState(() => _mediaId = id);
-  }
-
   /// 按当前精度选择时间（与地点对话框一致）。
   Future<void> _pickTime() async {
     final precision = _precision ?? TimePrecision.day;
-    DateTime? t;
-    switch (precision) {
-      case TimePrecision.year:
-        final y = await pickValueDialog(context, from: 1900, to: 2100, unit: '年');
-        if (y != null) t = DateTime(y, 1, 1);
-      case TimePrecision.month:
-        final y = await pickValueDialog(context, from: 1900, to: 2100, unit: '年');
-        if (y == null) return;
-        final m = await pickValueDialog(context, from: 1, to: 12, unit: '月');
-        if (m != null) t = DateTime(y, m, 1);
-      case TimePrecision.day:
-        final now = _time ?? DateTime.now();
-        t = await showDatePicker(
-          context: context,
-          initialDate: now,
-          firstDate: DateTime(1900),
-          lastDate: DateTime(2100),
-        );
-    }
+    final t = await pickTimeWithPrecision(context, precision: precision, current: _time);
     if (t == null) return;
     setState(() => _time = t);
   }
@@ -491,6 +542,7 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
       title: Text(widget.existing == null ? '路径信息' : '编辑路径'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
             TextField(
               controller: _name,
@@ -525,20 +577,15 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
             ],
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(child: _MediaThumb(personId: widget.personId, mediaId: _mediaId)),
-              TextButton.icon(
-                onPressed: _pickImage,
-                icon: const Icon(Icons.add_photo_alternate_outlined),
-                label: const Text('附图'),
-              ),
-              if (_mediaId != null)
-                IconButton(
-                  onPressed: () => setState(() => _mediaId = null),
-                  icon: const Icon(Icons.delete_outline),
-                ),
-            ],
+          Text(
+            '照片',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 8),
+          _PhotoList(
+            personId: widget.personId,
+            mediaIds: _mediaIds,
+            onChanged: (v) => setState(() => _mediaIds = v),
           ),
         ],
       ),
@@ -562,7 +609,7 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
               PathForm(
                 name: name,
                 desc: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
-                mediaId: _mediaId,
+                mediaIds: _mediaIds,
                 time: _time,
               ),
             );
@@ -582,7 +629,7 @@ class TripForm {
   final DateTime? endDate;
   final String? startEventId;
   final String? endEventId;
-  final String? cover;
+  final List<String> mediaIds;
 
   const TripForm({
     required this.name,
@@ -591,7 +638,7 @@ class TripForm {
     this.endDate,
     this.startEventId,
     this.endEventId,
-    this.cover,
+    this.mediaIds = const [],
   });
 
   void applyTo(Trip t) {
@@ -601,7 +648,7 @@ class TripForm {
     t.endDate = endDate;
     t.startEventId = startEventId;
     t.endEventId = endEventId;
-    t.cover = cover;
+    t.mediaIds = mediaIds;
   }
 }
 
@@ -633,7 +680,7 @@ class _TripDialogState extends ConsumerState<_TripDialog> {
   DateTime? _endDate;
   String? _startEventId;
   String? _endEventId;
-  String? _cover;
+  List<String> _mediaIds = [];
 
   @override
   void initState() {
@@ -645,7 +692,7 @@ class _TripDialogState extends ConsumerState<_TripDialog> {
     _endDate = t?.endDate;
     _startEventId = t?.startEventId;
     _endEventId = t?.endEventId;
-    _cover = t?.cover;
+    _mediaIds = t == null ? [] : [...t.mediaIds];
   }
 
   @override
@@ -686,6 +733,7 @@ class _TripDialogState extends ConsumerState<_TripDialog> {
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             TextField(
               key: const ValueKey('trip-name'),
@@ -727,28 +775,15 @@ class _TripDialogState extends ConsumerState<_TripDialog> {
             const SizedBox(height: 8),
             eventPicker(_endEventId, (v) => setState(() => _endEventId = v), '终点长期地点'),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(child: _MediaThumb(personId: widget.personId, mediaId: _cover)),
-                TextButton(
-                  onPressed: () async {
-                    final img = await pickImageBytes();
-                    if (img == null) return;
-                    final (ext, bytes) = img;
-                    final id = await ref
-                        .read(personDataProvider(widget.personId).notifier)
-                        .addMedia(ext, bytes);
-                    ref.invalidate(mediaListProvider(widget.personId));
-                    setState(() => _cover = id);
-                  },
-                  child: const Text('选封面图'),
-                ),
-                if (_cover != null)
-                  IconButton(
-                    onPressed: () => setState(() => _cover = null),
-                    icon: const Icon(Icons.delete_outline),
-                  ),
-              ],
+            Text(
+              '照片',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 8),
+            _PhotoList(
+              personId: widget.personId,
+              mediaIds: _mediaIds,
+              onChanged: (v) => setState(() => _mediaIds = v),
             ),
           ],
         ),
@@ -771,7 +806,7 @@ class _TripDialogState extends ConsumerState<_TripDialog> {
                 endDate: _endDate,
                 startEventId: _startEventId,
                 endEventId: _endEventId,
-                cover: _cover,
+                mediaIds: _mediaIds,
               ),
             );
           },
@@ -878,11 +913,11 @@ Future<void> deleteMediaIfUnused(
   String mediaId, {
   required List<Waypoint> waypoints,
   required List<PathData> paths,
-  String? coverId,
 }) async {
-  final used = {for (final w in waypoints) if (w.mediaId != null) w.mediaId!,
-    for (final p in paths) if (p.mediaId != null) p.mediaId!};
-  if (coverId != null) used.add(coverId);
+  final used = {
+    for (final w in waypoints) ...w.mediaIds,
+    for (final p in paths) ...p.mediaIds,
+  };
   if (!used.contains(mediaId)) {
     final repo = await ref.read(personRepoProvider(personId).future);
     if (await repo.mediaReferencedInBackups(mediaId)) return;
@@ -969,7 +1004,7 @@ class _RecordSaveDialogState extends ConsumerState<_RecordSaveDialog> {
         id: newId(),
         name: form.name,
         description: form.description,
-        cover: form.cover,
+        mediaIds: form.mediaIds,
         startDate: form.startDate,
         endDate: form.endDate,
         startEventId: form.startEventId,

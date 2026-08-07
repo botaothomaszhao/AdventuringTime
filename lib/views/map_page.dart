@@ -278,7 +278,7 @@ class _MapPageState extends ConsumerState<MapPage>
       id: newId(),
       name: form.name,
       description: form.description,
-      cover: form.cover,
+      mediaIds: form.mediaIds,
       startDate: form.startDate,
       endDate: form.endDate,
       startEventId: form.startEventId,
@@ -405,11 +405,11 @@ class _MapPageState extends ConsumerState<MapPage>
                   '确定删除该${w.isEvent ? '长期地点' : '地点'}？',
                 );
                 if (!ok) return;
-                if (w.mediaId != null) {
+                for (final id in w.mediaIds) {
                   await deleteMediaIfUnused(
                     ref,
                     personId,
-                    w.mediaId!,
+                    id,
                     waypoints: _allWaypoints(personId),
                     paths: _allPaths(personId),
                   );
@@ -478,11 +478,11 @@ class _MapPageState extends ConsumerState<MapPage>
               onTap: () async {
                 final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
                 if (!ok) return;
-                if (p.mediaId != null) {
+                for (final id in p.mediaIds) {
                   await deleteMediaIfUnused(
                     ref,
                     personId,
-                    p.mediaId!,
+                    id,
                     waypoints: _allWaypoints(personId),
                     paths: _allPaths(personId),
                   );
@@ -648,7 +648,7 @@ class _MapPageState extends ConsumerState<MapPage>
       time: form.time,
       timePrecision: form.precision,
       isEvent: form.isEvent,
-      mediaId: form.mediaId,
+      mediaIds: form.mediaIds,
       createdAt: now,
       updatedAt: now,
     );
@@ -740,7 +740,7 @@ class _MapPageState extends ConsumerState<MapPage>
       id: newId(),
       name: form?.name ?? '手绘路径',
       desc: form?.desc,
-      mediaId: form?.mediaId,
+      mediaIds: form?.mediaIds,
       isGps: false,
       points: [for (final p in _draftPoints) TrackPoint(p)],
       createdAt: now,
@@ -783,7 +783,7 @@ class _MapPageState extends ConsumerState<MapPage>
       id: p.id,
       name: p.name,
       desc: p.desc,
-      mediaId: p.mediaId,
+      mediaIds: p.mediaIds,
       isGps: p.isGps,
       points: [for (final pt in p.points) TrackPoint(pt.latLng, pt.time)],
       createdAt: p.createdAt,
@@ -1540,11 +1540,11 @@ class _MapPageState extends ConsumerState<MapPage>
   ) async {
     final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
     if (!ok) return;
-    if (p.mediaId != null) {
+    for (final id in p.mediaIds) {
       await deleteMediaIfUnused(
         ref,
         personId,
-        p.mediaId!,
+        id,
         waypoints: _allWaypoints(personId),
         paths: _allPaths(personId),
       );
@@ -1566,11 +1566,11 @@ class _MapPageState extends ConsumerState<MapPage>
     final key = _editPathKey()!;
     final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
     if (!ok) return;
-    if (p.mediaId != null) {
+    for (final id in p.mediaIds) {
       await deleteMediaIfUnused(
         ref,
         widget.personId,
-        p.mediaId!,
+        id,
         waypoints: _allWaypoints(widget.personId),
         paths: _allPaths(widget.personId),
       );

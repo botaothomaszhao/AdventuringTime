@@ -47,7 +47,12 @@ class StatsPage extends ConsumerWidget {
             for (final t in d.trips)
               Card(
                 child: ListTile(
-                  leading: MediaImage(personId: personId, mediaId: t.meta.cover, width: 44, height: 44),
+                  leading: MediaImage(
+                    personId: personId,
+                    mediaId: t.meta.mediaIds.isEmpty ? null : t.meta.mediaIds.first,
+                    width: 44,
+                    height: 44,
+                  ),
                   title: Text(t.meta.name),
                   subtitle: Text(_tripStatsLine(tripStats(t))),
                   onTap: () => Navigator.pushNamed(context, '/person/$personId/trip/${t.meta.id}'),

@@ -226,14 +226,11 @@ TripStats tripStats(TripBundle t) {
   } else {
     days = t.gpx.tracks.isNotEmpty || t.gpx.paths.isNotEmpty ? 1 : 0;
   }
-  final media = <String>{};
-  if (t.meta.cover != null) media.add(t.meta.cover!);
-  for (final w in t.gpx.waypoints) {
-    if (w.mediaId != null) media.add(w.mediaId!);
-  }
-  for (final pth in t.gpx.paths) {
-    if (pth.mediaId != null) media.add(pth.mediaId!);
-  }
+  final media = <String>{
+    ...t.meta.mediaIds,
+    for (final w in t.gpx.waypoints) ...w.mediaIds,
+    for (final pth in t.gpx.paths) ...pth.mediaIds,
+  };
   return TripStats(
     recordedMeters: meters,
     days: days,

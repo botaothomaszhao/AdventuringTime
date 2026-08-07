@@ -148,11 +148,9 @@ Future<List<int>> _packTrip(PersonRepository repo, String tripId) async {
   final bundle = await repo.loadTrip(tripId);
   if (bundle != null) {
     final ids = <String>{
-      if (bundle.meta.cover != null) bundle.meta.cover!,
-      for (final w in bundle.gpx.waypoints)
-        if (w.mediaId != null) w.mediaId!,
-      for (final pt in bundle.gpx.paths)
-        if (pt.mediaId != null) pt.mediaId!,
+      ...bundle.meta.mediaIds,
+      for (final w in bundle.gpx.waypoints) ...w.mediaIds,
+      for (final pt in bundle.gpx.paths) ...pt.mediaIds,
     };
     for (final id in ids) {
       final f = repo.media.find(id);

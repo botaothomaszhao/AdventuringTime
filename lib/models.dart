@@ -76,7 +76,7 @@ class Trip {
   final String id;
   String name;
   String? description;
-  String? cover; // mediaId
+  List<String> mediaIds; // 行程照片
   DateTime? startDate; // 标志时间点
   DateTime? endDate;
   String? startEventId; // 起终点事件引用（同人）
@@ -88,7 +88,7 @@ class Trip {
     required this.id,
     required this.name,
     this.description,
-    this.cover,
+    this.mediaIds = const [],
     this.startDate,
     this.endDate,
     this.startEventId,
@@ -101,7 +101,7 @@ class Trip {
         'id': id,
         'name': name,
         'description': description,
-        'cover': cover,
+        'mediaIds': mediaIds,
         'startDate': startDate?.toIso8601String(),
         'endDate': endDate?.toIso8601String(),
         'startEventId': startEventId,
@@ -114,7 +114,7 @@ class Trip {
         id: j['id'] as String,
         name: j['name'] as String? ?? '',
         description: j['description'] as String?,
-        cover: j['cover'] as String?,
+        mediaIds: (j['mediaIds'] as List?)?.whereType<String>().toList() ?? const [],
         startDate: _parseTime(j['startDate']),
         endDate: _parseTime(j['endDate']),
         startEventId: j['startEventId'] as String?,
@@ -139,7 +139,7 @@ class Waypoint {
   bool isEvent; // atrip:eventType=life
   String? fromName;
   LatLng? fromLatLng; // A→B 起点（可选）
-  String? mediaId;
+  List<String> mediaIds;
   final DateTime createdAt;
   DateTime updatedAt;
 
@@ -153,10 +153,15 @@ class Waypoint {
     this.isEvent = false,
     this.fromName,
     this.fromLatLng,
-    this.mediaId,
+    String? mediaId,
+    List<String>? mediaIds,
     required this.createdAt,
     required this.updatedAt,
-  });
+  }) : mediaIds = mediaIds ?? (mediaId == null ? const [] : [mediaId]);
+
+  /// 单图兼容：首张照片（旧代码/地图编辑对话框用）。
+  String? get mediaId => mediaIds.isEmpty ? null : mediaIds.first;
+  set mediaId(String? v) => mediaIds = v == null ? const [] : [v];
 
   /// 显示时间（无则 null），供时间线排序/展示。
   DateTime? get sortTime => time;
@@ -167,7 +172,7 @@ class PathData {
   final String id;
   String name;
   String? desc;
-  String? mediaId;
+  List<String> mediaIds;
   final bool isGps; // true=trk, false=rte
   List<TrackPoint> points;
   String? startEventId;
@@ -181,7 +186,8 @@ class PathData {
     required this.id,
     required this.name,
     this.desc,
-    this.mediaId,
+    String? mediaId,
+    List<String>? mediaIds,
     required this.isGps,
     required this.points,
     this.startEventId,
@@ -192,7 +198,11 @@ class PathData {
     this.endLon,
     required this.createdAt,
     required this.updatedAt,
-  });
+  }) : mediaIds = mediaIds ?? (mediaId == null ? const [] : [mediaId]);
+
+  /// 单图兼容：首张照片。
+  String? get mediaId => mediaIds.isEmpty ? null : mediaIds.first;
+  set mediaId(String? v) => mediaIds = v == null ? const [] : [v];
 
   LatLng get start => points.first.latLng;
   LatLng get end => points.last.latLng;

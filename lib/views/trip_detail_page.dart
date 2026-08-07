@@ -8,7 +8,7 @@ import 'dialogs.dart';
 import 'person_shell.dart';
 import 'widgets.dart';
 
-/// 行程详情：基本信息、封面、起终点、统计摘要、按日期分组的路径与地点、照片墙。
+/// 行程详情：内联编辑基本信息与起终点、统计摘要、按日期分组的路径与地点、底部照片墙。
 class TripDetailPage extends ConsumerWidget {
   final String personId;
   final String tripId;
@@ -31,47 +31,65 @@ class TripDetailPage extends ConsumerWidget {
         }
         final stats = tripStats(trip);
         final events = _eventsOf(d);
-        String? eventName(String? id) {
-          if (id == null) return null;
-          for (final e in events) {
-            if (e.id == id) return e.name;
-          }
-          return null;
-        }
-
-        final mediaIds = <String>{};
-        if (trip.meta.cover != null) mediaIds.add(trip.meta.cover!);
-        for (final w in trip.gpx.waypoints) {
-          if (w.mediaId != null) mediaIds.add(w.mediaId!);
-        }
-        for (final p in trip.gpx.paths) {
-          if (p.mediaId != null) mediaIds.add(p.mediaId!);
-        }
-
         final grouped = _groupByDate(trip);
+        final notifier = ref.read(personDataProvider(personId).notifier);
+
+        Future<void> saveMeta() async {
+          trip.meta.updatedAt = DateTime.now();
+          await notifier.saveTripMeta(trip.meta);
+        }
+
+        Future<void> setPhotos(List<String> next) async {
+          final removed = [
+            for (final id in trip.meta.mediaIds) if (!next.contains(id)) id,
+          ];
+          trip.meta.mediaIds = next;
+          await saveMeta();
+          for (final id in removed) {
+            await deleteMediaIfUnused(
+              ref,
+              personId,
+              id,
+              waypoints: _allWaypoints(d),
+              paths: _allPaths(d),
+            );
+          }
+        }
+
+        Widget eventPicker(String label, String? value, ValueChanged<String?> onChanged) {
+          return DropdownButtonFormField<String?>(
+            initialValue: value,
+            decoration: InputDecoration(
+              labelText: label,
+              border: const OutlineInputBorder(),
+            ),
+            items: [
+              const DropdownMenuItem<String?>(value: null, child: Text('（无）')),
+              for (final e in events)
+                DropdownMenuItem<String?>(
+                  value: e.id,
+                  child: Text(e.name, overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: onChanged,
+          );
+        }
 
         return Scaffold(
           appBar: AppBar(
-            title: Text(trip.meta.name),
+            title: Text(trip.meta.name.isEmpty ? '（未命名行程）' : trip.meta.name),
             actions: [
-              IconButton(
-                icon: const Icon(Icons.edit_outlined),
-                tooltip: '编辑行程',
-                onPressed: () async {
-                  final form = await showTripDialog(context, personId: personId, existing: trip.meta);
-                  if (form == null) return;
-                  form.applyTo(trip.meta);
-                  trip.meta.updatedAt = DateTime.now();
-                  await ref.read(personDataProvider(personId).notifier).saveTripMeta(trip.meta);
-                },
-              ),
               IconButton(
                 icon: const Icon(Icons.delete_outline),
                 tooltip: '删除行程',
                 onPressed: () async {
-                  final ok = await confirmDialog(context, '删除行程', '确定删除该行程（含其中地点与路径）？');
+                  final ok = await confirmDialog(
+                    context,
+                    '删除行程',
+                    '确定删除该行程（含其中地点与路径）？',
+                  );
                   if (!ok) return;
-                  await ref.read(personDataProvider(personId).notifier).deleteTrip(tripId);
+                  await notifier.deleteTrip(tripId);
                   if (context.mounted) Navigator.pop(context);
                 },
               ),
@@ -80,20 +98,89 @@ class TripDetailPage extends ConsumerWidget {
           body: ListView(
             padding: const EdgeInsets.all(12),
             children: [
-              if (trip.meta.cover != null)
-                Center(
-                  child: MediaImage(personId: personId, mediaId: trip.meta.cover, width: 200, height: 140),
-                ),
-              _EditableDesc(personId: personId, tripId: tripId, desc: trip.meta.description),
+              InlineTextEdit(
+                value: trip.meta.name,
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                onSave: (v) async {
+                  if (v.isEmpty) {
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(const SnackBar(content: Text('名称不能为空')));
+                    return;
+                  }
+                  trip.meta.name = v;
+                  await saveMeta();
+                },
+              ),
+              InlineTextEdit(
+                value: trip.meta.description,
+                hint: '添加说明…',
+                maxLines: 3,
+                onSave: (v) async {
+                  trip.meta.description = v.isEmpty ? null : v;
+                  await saveMeta();
+                },
+              ),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _row('时间', '${fmtDate(trip.meta.startDate)} 至 ${fmtDate(trip.meta.endDate)}'),
-                      _row('起点', eventName(trip.meta.startEventId) ?? '—'),
-                      _row('终点', eventName(trip.meta.endEventId) ?? '—'),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () async {
+                                final t = await showDatePicker(
+                                  context: context,
+                                  initialDate: trip.meta.startDate ?? DateTime.now(),
+                                  firstDate: DateTime(1900),
+                                  lastDate: DateTime(2100),
+                                );
+                                if (t == null) return;
+                                trip.meta.startDate = t;
+                                await saveMeta();
+                              },
+                              child: Text(
+                                trip.meta.startDate == null
+                                    ? '开始日期'
+                                    : fmtDate(trip.meta.startDate),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () async {
+                                final t = await showDatePicker(
+                                  context: context,
+                                  initialDate: trip.meta.endDate ?? DateTime.now(),
+                                  firstDate: DateTime(1900),
+                                  lastDate: DateTime(2100),
+                                );
+                                if (t == null) return;
+                                trip.meta.endDate = t;
+                                await saveMeta();
+                              },
+                              child: Text(
+                                trip.meta.endDate == null
+                                    ? '结束日期'
+                                    : fmtDate(trip.meta.endDate),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      eventPicker('起点长期地点', trip.meta.startEventId, (v) async {
+                        trip.meta.startEventId = v;
+                        await saveMeta();
+                      }),
+                      const SizedBox(height: 8),
+                      eventPicker('终点长期地点', trip.meta.endEventId, (v) async {
+                        trip.meta.endEventId = v;
+                        await saveMeta();
+                      }),
                       const Divider(),
                       _row('记录里程', formatMeters(stats.recordedMeters)),
                       _row('天数', '${stats.days} 天'),
@@ -108,53 +195,46 @@ class TripDetailPage extends ConsumerWidget {
               for (final g in grouped) ...[
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Text(g.date, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  child: Text(
+                    g.date,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ),
                 for (final item in g.items)
                   ListTile(
                     dense: true,
-                    leading: Icon(item is PathData ? Icons.timeline : Icons.location_on, size: 20),
+                    leading: Icon(
+                      item is PathData ? Icons.timeline : Icons.location_on,
+                      size: 20,
+                    ),
                     title: Text(item is PathData ? item.name : (item as Waypoint).name),
                     subtitle: Text(item is PathData
                         ? (item.isGps ? 'GPS 轨迹' : '手绘路径')
                         : ((item as Waypoint).desc ?? '')),
-                    onTap: () {
-                      final target = item is PathData
-                          ? (item.points.isEmpty ? null : item.points.first.latLng)
-                          : (item as Waypoint).latLng;
-                      if (target == null) return;
-                      Navigator.pop(context);
-                      ref.read(mapPageActionProvider(personId).notifier).focusOn(target);
+                    onTap: () async {
+                      if (item is PathData) {
+                        final p = item;
+                        final form = await showPathDialog(
+                          context,
+                          personId: personId,
+                          existing: p,
+                          onDelete: () => _deletePathFromPage(context, ref, d, p, tripId),
+                        );
+                        if (form == null) return;
+                        form.applyTo(p);
+                        p.updatedAt = DateTime.now();
+                        await notifier.saveTripPath(tripId, p);
+                      } else {
+                        Navigator.pop(context);
+                        ref.read(mapPageActionProvider(personId).notifier).focusOn(
+                              (item as Waypoint).latLng,
+                            );
+                      }
                     },
                   ),
               ],
-              if (mediaIds.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                const Text('照片墙', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                GridView.count(
-                  crossAxisCount: 3,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  mainAxisSpacing: 6,
-                  crossAxisSpacing: 6,
-                  children: [
-                    for (final id in mediaIds)
-                      GestureDetector(
-                        onTap: () => showDialog(
-                          context: context,
-                          builder: (_) => Dialog(
-                            child: MediaImage(personId: personId, mediaId: id, height: 400, fit: BoxFit.contain),
-                          ),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: MediaImage(personId: personId, mediaId: id),
-                        ),
-                      ),
-                  ],
-                ),
-              ],
+              const SizedBox(height: 16),
+              PhotoWall(personId: personId, mediaIds: trip.meta.mediaIds, onChanged: setPhotos),
             ],
           ),
         );
@@ -174,7 +254,10 @@ class TripDetailPage extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [Text(label, style: const TextStyle(color: Colors.grey)), Text(value)],
+        children: [
+          Text(label, style: const TextStyle(color: Colors.grey)),
+          Text(value),
+        ],
       ),
     );
   }
@@ -202,87 +285,32 @@ class TripDetailPage extends ConsumerWidget {
     });
     return out;
   }
-}
 
-/// 说明内联编辑：点击显示区直接进入编辑，保存后落盘。
-class _EditableDesc extends ConsumerStatefulWidget {
-  final String personId;
-  final String tripId;
-  final String? desc;
-
-  const _EditableDesc({required this.personId, required this.tripId, this.desc});
-
-  @override
-  ConsumerState<_EditableDesc> createState() => _EditableDescState();
-}
-
-class _EditableDescState extends ConsumerState<_EditableDesc> {
-  late final TextEditingController _c;
-  bool _editing = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _c = TextEditingController(text: widget.desc ?? '');
-  }
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    final d = ref.read(personDataProvider(widget.personId)).valueOrNull;
-    final t = d?.tripById(widget.tripId);
-    if (t == null) return;
-    final meta = t.meta;
-    meta.description = _c.text.trim().isEmpty ? null : _c.text.trim();
-    meta.updatedAt = DateTime.now();
-    await ref.read(personDataProvider(widget.personId).notifier).saveTripMeta(meta);
-    setState(() => _editing = false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_editing) {
-      return InkWell(
-        onTap: () => setState(() => _editing = true),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Text(
-            _c.text.isEmpty ? '添加说明…' : _c.text,
-            style: _c.text.isEmpty
-                ? TextStyle(color: Colors.grey.shade500, fontStyle: FontStyle.italic)
-                : null,
-          ),
-        ),
+  /// 路径编辑对话框内的删除：确认后删除并关闭对话框。
+  Future<void> _deletePathFromPage(
+    BuildContext context,
+    WidgetRef ref,
+    PersonData d,
+    PathData p,
+    String tripId,
+  ) async {
+    final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
+    if (!ok) return;
+    for (final id in p.mediaIds) {
+      await deleteMediaIfUnused(
+        ref,
+        personId,
+        id,
+        waypoints: _allWaypoints(d),
+        paths: _allPaths(d),
       );
     }
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _c,
-              autofocus: true,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                isDense: true,
-                hintText: '说明',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.check),
-            tooltip: '保存说明',
-            onPressed: _save,
-          ),
-        ],
-      ),
-    );
+    await ref.read(personDataProvider(personId).notifier).deleteTripPath(tripId, p.id);
+    if (context.mounted) Navigator.pop(context);
   }
 }
+
+List<Waypoint> _allWaypoints(PersonData d) =>
+    [...d.life.waypoints, for (final t in d.trips) ...t.gpx.waypoints];
+
+List<PathData> _allPaths(PersonData d) => [for (final t in d.trips) ...t.gpx.paths];

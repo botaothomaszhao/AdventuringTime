@@ -55,6 +55,8 @@ Waypoint _parseWaypoint(XmlElement e) {
   final fromLon = _num(_ext(e, 'fromLon'));
   final createdAt = _ext(e, 'createdAt');
   final updatedAt = _ext(e, 'updatedAt');
+  final single = _ext(e, 'mediaId');
+  final list = _ext(e, 'mediaIds');
   return Waypoint(
     id: _ext(e, 'id') ?? newId(),
     name: _text(e, 'name') ?? '',
@@ -65,7 +67,9 @@ Waypoint _parseWaypoint(XmlElement e) {
     isEvent: isEvent,
     fromName: _ext(e, 'fromName'),
     fromLatLng: fromLat != null && fromLon != null ? LatLng(fromLat, fromLon) : null,
-    mediaId: _ext(e, 'mediaId'),
+    mediaIds: list == null
+        ? (single == null ? const [] : [single])
+        : list.split(',').where((s) => s.isNotEmpty).toList(),
     createdAt: createdAt == null ? DateTime.now() : DateTime.tryParse(createdAt) ?? DateTime.now(),
     updatedAt: updatedAt == null ? DateTime.now() : DateTime.tryParse(updatedAt) ?? DateTime.now(),
   );
@@ -90,11 +94,15 @@ PathData _parsePath(XmlElement e, {required bool isGps}) {
   }
   final createdAt = _ext(e, 'createdAt');
   final updatedAt = _ext(e, 'updatedAt');
+  final single = _ext(e, 'mediaId');
+  final list = _ext(e, 'mediaIds');
   return PathData(
     id: _ext(e, 'id') ?? newId(),
     name: _text(e, 'name') ?? '',
     desc: _text(e, 'desc'),
-    mediaId: _ext(e, 'mediaId'),
+    mediaIds: list == null
+        ? (single == null ? const [] : [single])
+        : list.split(',').where((s) => s.isNotEmpty).toList(),
     isGps: isGps,
     points: points,
     startEventId: _ext(e, 'startEventId'),
@@ -120,11 +128,14 @@ Trip? _parseMetadataTrip(XmlElement metadata) {
   }
 
   String? s(String n) => _text(trip, n);
+  final list = s('mediaIds');
   return Trip(
     id: s('id') ?? newId(),
     name: s('name') ?? '',
     description: s('description'),
-    cover: s('cover'),
+    mediaIds: list == null
+        ? const []
+        : list.split(',').where((s) => s.isNotEmpty).toList(),
     startDate: p('startDate'),
     endDate: p('endDate'),
     startEventId: s('startEventId'),
@@ -172,7 +183,10 @@ String _wptXml(Waypoint w) {
     b.write('      <atrip:fromLat>${_lat(w.fromLatLng!)}</atrip:fromLat>\n');
     b.write('      <atrip:fromLon>${_lon(w.fromLatLng!)}</atrip:fromLon>\n');
   }
-  if (w.mediaId != null) b.write('      <atrip:mediaId>${w.mediaId}</atrip:mediaId>\n');
+  if (w.mediaIds.isNotEmpty) {
+    b.write('      <atrip:mediaId>${w.mediaIds.first}</atrip:mediaId>\n');
+    b.write('      <atrip:mediaIds>${w.mediaIds.join(',')}</atrip:mediaIds>\n');
+  }
   b.write('      <atrip:createdAt>${_iso(w.createdAt)}</atrip:createdAt>\n');
   b.write('      <atrip:updatedAt>${_iso(w.updatedAt)}</atrip:updatedAt>\n');
   b.write('    </extensions>\n');
@@ -187,7 +201,10 @@ String _pathXml(PathData p) {
   if (p.desc != null) b.write('    <desc>${_esc(p.desc!)}</desc>\n');
   b.write('    <extensions>\n');
   b.write('      <atrip:id>${p.id}</atrip:id>\n');
-  if (p.mediaId != null) b.write('      <atrip:mediaId>${p.mediaId}</atrip:mediaId>\n');
+  if (p.mediaIds.isNotEmpty) {
+    b.write('      <atrip:mediaId>${p.mediaIds.first}</atrip:mediaId>\n');
+    b.write('      <atrip:mediaIds>${p.mediaIds.join(',')}</atrip:mediaIds>\n');
+  }
   if (p.startEventId != null) b.write('      <atrip:startEventId>${p.startEventId}</atrip:startEventId>\n');
   if (p.startLat != null) b.write('      <atrip:startLat>${p.startLat}</atrip:startLat>\n');
   if (p.startLon != null) b.write('      <atrip:startLon>${p.startLon}</atrip:startLon>\n');
@@ -224,7 +241,9 @@ String _metadataXml(Trip t) {
   b.write('        <atrip:id>${t.id}</atrip:id>\n');
   b.write('        <atrip:name>${_esc(t.name)}</atrip:name>\n');
   if (t.description != null) b.write('        <atrip:description>${_esc(t.description!)}</atrip:description>\n');
-  if (t.cover != null) b.write('        <atrip:cover>${t.cover}</atrip:cover>\n');
+  if (t.mediaIds.isNotEmpty) {
+    b.write('        <atrip:mediaIds>${t.mediaIds.join(',')}</atrip:mediaIds>\n');
+  }
   if (t.startDate != null) b.write('        <atrip:startDate>${_iso(t.startDate!)}</atrip:startDate>\n');
   if (t.endDate != null) b.write('        <atrip:endDate>${_iso(t.endDate!)}</atrip:endDate>\n');
   if (t.startEventId != null) b.write('        <atrip:startEventId>${t.startEventId}</atrip:startEventId>\n');

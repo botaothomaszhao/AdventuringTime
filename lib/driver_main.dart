@@ -117,14 +117,18 @@ Future<String> _handleCommand(String? message) async {
       w.mediaId = params['mediaId'];
       await notifier.saveLifeWaypoint(w);
       return 'ok:${w.mediaId}';
-    case 'setTripCover':
+    case 'addTripPhoto':
+      // 给行程照片列表首位插入一张媒体
       final t = notifier.d.tripById(params['tripId']!);
       if (t == null) return 'no-trip';
+      final c = params['mediaId'];
       final meta = Trip(
         id: t.meta.id,
         name: t.meta.name,
         description: t.meta.description,
-        cover: params['mediaId'],
+        mediaIds: c == null
+            ? t.meta.mediaIds
+            : [c, ...t.meta.mediaIds.where((m) => m != c)],
         startDate: t.meta.startDate,
         endDate: t.meta.endDate,
         startEventId: t.meta.startEventId,
@@ -198,7 +202,7 @@ Future<String> _handleCommand(String? message) async {
         time: form.time,
         timePrecision: form.precision,
         isEvent: form.isEvent,
-        mediaId: form.mediaId,
+        mediaIds: form.mediaIds,
         createdAt: now,
         updatedAt: now,
       );

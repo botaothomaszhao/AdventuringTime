@@ -272,7 +272,7 @@ class PersonDataNotifier extends FamilyAsyncNotifier<PersonData, String> {
   }
 }
 
-/// 媒体列表（照片墙/封面选择用），修改媒体后 invalidate。
+/// 媒体列表（照片墙用），修改媒体后 invalidate。
 final mediaListProvider = FutureProvider.family<List<File>, String>((ref, personId) async {
   final repo = await ref.watch(personRepoProvider(personId).future);
   return repo.media.listAll();

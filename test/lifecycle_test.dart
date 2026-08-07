@@ -256,7 +256,7 @@ void main() {
         ),
       ]);
       t.gpx.waypoints.add(ev('w1', DateTime.utc(2024, 7, 1), const LatLng(0, 0))..mediaId = 'm1');
-      t.meta.cover = 'm2';
+      t.meta.mediaIds = ['m2'];
       final s = tripStats(t);
       expect(s.recordedMeters, closeTo(2 * haversineM(const LatLng(0, 0), const LatLng(0, 1)), 1e-6));
       expect(s.days, 2);

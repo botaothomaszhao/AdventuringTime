@@ -171,6 +171,48 @@ void main() {
     expect(repo.media.find(id), isNull);
   });
 
+  test('mediaIds 列表（地点/行程/路径）被引用收集', () async {
+    for (final id in ['m1', 'm2', 'm3', 'm4']) {
+      final f = File(p.join(repo.media.dir.path, '$id.jpg'));
+      await f.parent.create(recursive: true);
+      await f.writeAsBytes([1]);
+    }
+    await repo.saveTrip(TripBundle(
+      meta: Trip(
+        id: 't1',
+        name: 't1',
+        mediaIds: ['m1', 'm2'],
+        createdAt: DateTime.utc(2024, 1, 1),
+        updatedAt: DateTime.utc(2024, 1, 1),
+      ),
+      gpx: GpxFile(
+        waypoints: [
+          Waypoint(
+            id: 'w1',
+            name: 'w1',
+            mediaIds: ['m3'],
+            latLng: const LatLng(0, 0),
+            createdAt: DateTime.utc(2024, 1, 1),
+            updatedAt: DateTime.utc(2024, 1, 1),
+          ),
+        ],
+        paths: [
+          PathData(
+            id: 'p1',
+            name: 'p1',
+            mediaIds: ['m4'],
+            isGps: true,
+            points: [TrackPoint(const LatLng(0, 0), DateTime.utc(2024, 1, 1))],
+            createdAt: DateTime.utc(2024, 1, 1),
+            updatedAt: DateTime.utc(2024, 1, 1),
+          ),
+        ],
+      ),
+    ));
+    final ids = await repo.referencedMediaIds();
+    expect(ids, containsAll(['m1', 'm2', 'm3', 'm4']));
+  });
+
   test('listTrips 排序按 startDate', () async {
     for (final (tid, start) in [('a', DateTime.utc(2024, 7, 1)), ('b', DateTime.utc(2024, 5, 1))]) {
       await repo.saveTrip(TripBundle(

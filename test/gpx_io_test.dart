@@ -16,7 +16,7 @@ void main() {
         isEvent: true,
         fromName: '武汉',
         fromLatLng: const LatLng(30.59, 114.30),
-        mediaId: 'media1',
+        mediaIds: ['media1', 'media2'],
         createdAt: DateTime.utc(2020, 1, 1),
         updatedAt: DateTime.utc(2020, 1, 2),
       );
@@ -35,6 +35,7 @@ void main() {
       expect(p.fromName, '武汉');
       expect(p.fromLatLng!.latitude, closeTo(30.59, 1e-9));
       expect(p.mediaId, 'media1');
+      expect(p.mediaIds, ['media1', 'media2']);
       expect(p.createdAt, DateTime.utc(2020, 1, 1));
     });
 
@@ -52,6 +53,7 @@ void main() {
         id: 'trk1',
         name: '骑行记录',
         desc: 'day1',
+        mediaIds: ['m1', 'm2'],
         isGps: true,
         points: [
           TrackPoint(const LatLng(25.0, 100.0), DateTime.utc(2023, 5, 1, 8, 0)),
@@ -82,6 +84,8 @@ void main() {
       expect(t.points.first.time, DateTime.utc(2023, 5, 1, 8, 0));
       expect(t.startEventId, 'ev1');
       expect(t.startLat, closeTo(24.9, 1e-9));
+      expect(t.mediaId, 'm1');
+      expect(t.mediaIds, ['m1', 'm2']);
       expect(parsed.routes.first.points.last.latLng.longitude, closeTo(100.3, 1e-9));
     });
 
@@ -90,7 +94,7 @@ void main() {
         id: 'trip1',
         name: '新疆8日游',
         description: '北疆环线',
-        cover: 'c1',
+        mediaIds: ['c1', 'c2'],
         startDate: DateTime.utc(2024, 7, 1),
         endDate: DateTime.utc(2024, 7, 8),
         startEventId: 'ev1',
@@ -104,7 +108,7 @@ void main() {
       expect(m.id, 'trip1');
       expect(m.name, '新疆8日游');
       expect(m.description, '北疆环线');
-      expect(m.cover, 'c1');
+      expect(m.mediaIds, ['c1', 'c2']);
       expect(m.startDate, DateTime.utc(2024, 7, 1));
       expect(m.endEventId, 'ev2');
       expect(m.updatedAt, DateTime.utc(2024, 6, 1));

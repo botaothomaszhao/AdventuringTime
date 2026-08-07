@@ -75,16 +75,6 @@ class TimelinePage extends ConsumerWidget {
           onSelected: (v) async {
             final notifier = ref.read(personDataProvider(personId).notifier);
             switch (v) {
-              case 'edit':
-                final form = await showWaypointDialog(context, personId: personId, existing: w, tripId: tripId);
-                if (form == null) return;
-                form.applyTo(w);
-                w.updatedAt = DateTime.now();
-                if (tripId == null) {
-                  await notifier.saveLifeWaypoint(w);
-                } else {
-                  await notifier.saveTripWaypoint(tripId, w);
-                }
               case 'move_in':
                 if (d.trips.isEmpty) {
                   ScaffoldMessenger.of(context)
@@ -98,8 +88,8 @@ class TimelinePage extends ConsumerWidget {
               case 'delete':
                 final ok = await confirmDialog(context, '删除长期地点', '确定删除该长期地点？');
                 if (!ok) return;
-                if (w.mediaId != null) {
-                  await deleteMediaIfUnused(ref, personId, w.mediaId!,
+                for (final id in w.mediaIds) {
+                  await deleteMediaIfUnused(ref, personId, id,
                       waypoints: _allWaypoints(d), paths: _allPaths(d));
                 }
                 if (tripId == null) {
@@ -110,7 +100,6 @@ class TimelinePage extends ConsumerWidget {
             }
           },
           itemBuilder: (_) => [
-            const PopupMenuItem(value: 'edit', child: Text('编辑')),
             if (tripId == null)
               const PopupMenuItem(value: 'move_in', child: Text('移入行程'))
             else
@@ -118,19 +107,7 @@ class TimelinePage extends ConsumerWidget {
             const PopupMenuItem(value: 'delete', child: Text('删除')),
           ],
         ),
-        onTap: () async {
-          // 点击直接进入编辑（名称/说明/时间）
-          final form = await showWaypointDialog(context, personId: personId, existing: w, tripId: tripId);
-          if (form == null) return;
-          form.applyTo(w);
-          w.updatedAt = DateTime.now();
-          final notifier = ref.read(personDataProvider(personId).notifier);
-          if (tripId == null) {
-            await notifier.saveLifeWaypoint(w);
-          } else {
-            await notifier.saveTripWaypoint(tripId, w);
-          }
-        },
+        onTap: () => Navigator.pushNamed(context, '/person/$personId/event/${w.id}'),
       ),
     );
   }

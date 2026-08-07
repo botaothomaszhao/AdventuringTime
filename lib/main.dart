@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'views/event_detail_page.dart';
 import 'views/person_shell.dart';
 import 'views/settings_page.dart';
 import 'views/trip_detail_page.dart';
@@ -34,6 +35,8 @@ Route<dynamic> generateRoute(RouteSettings settings) {
     page = const PersonHome();
   } else if (segs.length == 4 && segs[0] == 'person' && segs[2] == 'trip') {
     page = TripDetailPage(personId: segs[1], tripId: segs[3]);
+  } else if (segs.length == 4 && segs[0] == 'person' && segs[2] == 'event') {
+    page = EventDetailPage(personId: segs[1], waypointId: segs[3]);
   } else if (segs.length == 1 && segs[0] == 'settings') {
     page = const SettingsPage();
   }
