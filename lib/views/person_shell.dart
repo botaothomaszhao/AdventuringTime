@@ -364,7 +364,7 @@ class _BackupDialogState extends ConsumerState<_BackupDialog> {
 
   Future<void> _manualBackup() async {
     try {
-      await widget.repo.backupAll();
+      await widget.repo.backupAll(force: true);
       await _reload();
       _snack('已手动备份');
     } catch (e) {

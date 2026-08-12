@@ -299,8 +299,9 @@ class TripDetailPage extends ConsumerWidget {
   }
 
   /// 按日期分组的路径与地点。组内默认按时间排序；orderIds 覆盖该组全部项时按自定义顺序。
-  List<({String date, List<({Object data, bool canUp, bool canDown})> items})> _groupByDate(
-      TripBundle trip) {
+  /// 组间按日期值从早到晚排（"未标日期"组排最后）。
+  List<({String date, DateTime? keyTime, List<({Object data, bool canUp, bool canDown})> items})>
+      _groupByDate(TripBundle trip) {
     final map = <String, List<Object>>{};
     String keyFor(DateTime? t) {
       if (t == null) return '未标日期';
@@ -321,7 +322,12 @@ class TripDetailPage extends ConsumerWidget {
       map.putIfAbsent(keyFor(timeOf(w)), () => []).add(w);
     }
     final ids = g.orderIds;
-    final out = <({String date, List<({Object data, bool canUp, bool canDown})> items})>[];
+    final out = <
+        ({
+          String date,
+          DateTime? keyTime,
+          List<({Object data, bool canUp, bool canDown})> items,
+        })>[];
     for (final e in map.entries) {
       final items = e.value;
       final covered = ids.isNotEmpty && items.every((o) => ids.contains(idOf(o)));
@@ -332,6 +338,7 @@ class TripDetailPage extends ConsumerWidget {
       }
       out.add((
         date: e.key,
+        keyTime: timeOf(items.first),
         items: [
           for (var i = 0; i < items.length; i++)
             (data: items[i], canUp: i > 0, canDown: i < items.length - 1),
@@ -339,11 +346,9 @@ class TripDetailPage extends ConsumerWidget {
       ));
     }
     out.sort((a, b) {
-      bool isDate(String s) => s.contains('年');
-      if (isDate(a.date) && isDate(b.date)) {
-        return a.date.compareTo(b.date);
-      }
-      return a.date == '未标日期' ? 1 : (b.date == '未标日期' ? -1 : a.date.compareTo(b.date));
+      if (a.keyTime == null) return 1;
+      if (b.keyTime == null) return -1;
+      return a.keyTime!.compareTo(b.keyTime!);
     });
     return out;
   }

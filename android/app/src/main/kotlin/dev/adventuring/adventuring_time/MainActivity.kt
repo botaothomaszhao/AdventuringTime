@@ -35,6 +35,17 @@ class MainActivity : FlutterActivity() {
             }
         })
 
+        // 实时位置通道：蓝点用，会话期间（记录/暂停）持续推送
+        EventChannel(messenger, "$channel/position").setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                LocationForegroundService.attachPositionSink(events)
+            }
+
+            override fun onCancel(arguments: Any?) {
+                LocationForegroundService.attachPositionSink(null)
+            }
+        })
+
         MethodChannel(messenger, channel).setMethodCallHandler { call, result ->
             when (call.method) {
                 "start" -> {

@@ -15,6 +15,7 @@ class LocationService {
 
   static const _channel = MethodChannel('adventuring_time/location');
   static const _events = EventChannel('adventuring_time/location/events');
+  static const _posEvents = EventChannel('adventuring_time/location/position');
 
   static Future<void> start() => _channel.invokeMethod('start');
   static Future<void> pause() => _channel.invokeMethod('pause');
@@ -57,6 +58,13 @@ class LocationService {
   /// 实时采样点流（仅供 UI 更新）。
   static Stream<RawPoint> rawPoints() =>
       _events.receiveBroadcastStream().map((e) => _decodePoints([e]).first);
+
+  /// 实时位置流（仅供蓝点）：会话期间前台服务每次定位都推送，记录/暂停均实时。
+  static Stream<LatLng> positions() =>
+      _posEvents.receiveBroadcastStream().map((e) {
+        final m = e as Map;
+        return LatLng((m['lat'] as num).toDouble(), (m['lon'] as num).toDouble());
+      });
 
   static List<RawPoint> _decodePoints(Object? l) {
     if (l is! List) return [];

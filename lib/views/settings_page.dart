@@ -59,9 +59,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     _addrCtrl.text = prefs.getString('syncAddress') ?? '';
     if (Platform.isWindows) {
       _ips = await _lanIps();
-      if (prefs.getBool('syncServerOn') ?? false) {
-        await _startServer(port);
-      }
     }
     if (mounted) setState(() {});
   }
@@ -83,8 +80,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       final s = SyncServer(port);
       await s.start();
       _server = s;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('syncServerOn', true);
       setState(() {});
     } finally {
       setState(() => _serverBusy = false);
@@ -96,8 +91,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     try {
       await _server?.stop();
       _server = null;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('syncServerOn', false);
       setState(() {});
     } finally {
       setState(() => _serverBusy = false);

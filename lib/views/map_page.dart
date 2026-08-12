@@ -69,8 +69,10 @@ class _MapPageState extends ConsumerState<MapPage>
   final Map<String, List<LatLng>> _translateOrig = {};
   String? _pendingTripId; // 添加地点模式的目标行程（从行程弹窗进入时预选）
   DiskCachedTileProvider? _tileProvider;
-  LatLng? _myPos; // 实时定位点（仅 Android）
+  LatLng? _myPos; // 实时定位点（空闲时 geolocator 流）
+  LatLng? _livePos; // 会话期间前台服务实时位置（记录/暂停都持续推送）
   StreamSubscription<Position>? _posSub;
+  StreamSubscription<LatLng>? _liveSub;
   int _activePointers = 0; // 地图上当前按下的触点数量
 
   static const _palette = [
@@ -98,10 +100,12 @@ class _MapPageState extends ConsumerState<MapPage>
   @override
   void dispose() {
     _posSub?.cancel();
+    _liveSub?.cancel();
     super.dispose();
   }
 
-  /// 蓝点：请求定位权限并订阅实时位置。
+  /// 蓝点：请求定位权限并订阅实时位置。空闲时用 geolocator 流；
+  /// 记录会话期间改用前台服务推送的实时位置（服务持续定位，蓝点不受暂停/采样影响）。
   Future<void> _initMyLocation() async {
     if (!await LocationService.ensureLocationPermission()) return;
     if (!mounted) return;
@@ -114,16 +118,16 @@ class _MapPageState extends ConsumerState<MapPage>
         ).listen((p) {
           if (mounted) setState(() => _myPos = LatLng(p.latitude, p.longitude));
         });
+    _liveSub = LocationService.positions().listen((ll) {
+      if (mounted) setState(() => _livePos = ll);
+    });
   }
 
-  /// 蓝点实时位置：记录中随采样点移动（geolocator 流可能与前台服务 GPS 请求冲突而冻结），
-  /// 空闲时用 geolocator 实时流。
+  /// 蓝点实时位置：空闲时用 geolocator 流；记录会话期间（记录/暂停）用前台服务
+  /// 推送的实时位置——服务持续定位，蓝点独立于采样/暂停状态，始终实时不跳变。
   LatLng? _currentBluePos(RecordState? rec) {
-    if (rec != null &&
-        rec.status == RecordStatus.recording &&
-        rec.points.isNotEmpty) {
-      return rec.points.last.latLng;
-    }
+    final active = rec != null && rec.status != RecordStatus.idle;
+    if (active && _livePos != null) return _livePos;
     return _myPos;
   }
 
@@ -177,6 +181,8 @@ class _MapPageState extends ConsumerState<MapPage>
         }
         return;
       }
+      // 清除上个会话残留的实时位置，避免新会话蓝点先显示旧位置
+      setState(() => _livePos = null);
       await ref.read(recordingProvider.notifier).start();
     } else {
       final pts = await ref.read(recordingProvider.notifier).stop();
@@ -531,7 +537,6 @@ class _MapPageState extends ConsumerState<MapPage>
         label: t.meta.name.isEmpty ? '（未命名行程）' : t.meta.name,
         detail:
             '${fmtDate(t.meta.startDate)} 至 ${fmtDate(t.meta.endDate)} · ${stats.placeCount} 个地点 · ${stats.pathCount} 条路径',
-        time: t.meta.startDate,
         actions: () {
           return [
             ListTile(

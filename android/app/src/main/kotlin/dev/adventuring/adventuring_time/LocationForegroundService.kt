@@ -20,9 +20,10 @@ import java.io.File
 
 /**
  * 前台轨迹记录服务：系统 LocationManager 持续定位（GPS 优先、网络兜底），
- * 按"位移 > 20m 或间隔 > 30s"采样，点即写落盘（JSONL 会话文件）并推送 EventChannel。
+ * 按"位移 > 20m 或间隔 > 30s"采样，点即写落盘（JSONL 会话文件）并推送 EventChannel；
+ * 同时把每次定位实时推送到位置通道，供地图蓝点使用（暂停时也推送，蓝点不中断）。
  * 会话与状态持久化：app/服务被杀后，START_STICKY 重启时按状态文件恢复采样，
- * 重进应用从文件拉回全部点，数据不丢、记录不中断。
+ * 重进应用从文件拉回全部点，数据不丢、记录不中断；记录段起始一并持久化，计时不重置。
  */
 class LocationForegroundService : Service() {
 
@@ -43,18 +44,27 @@ class LocationForegroundService : Service() {
         var running = false
             private set
 
+        /** 是否正在采样轨迹点（暂停时为 false；定位监听保留，蓝点仍实时）。 */
         @Volatile
-        private var sampling = false
+        private var recording = false
 
-        /** 当前记录段起始时间（ms）：暂停/被杀后重新采样时重置，用于累计记录时长。 */
+        /** 当前记录段起始时间（ms）：暂停置 0；被系统重启时从状态文件恢复，用于累计记录时长。 */
         @Volatile
         private var segmentStartMs = 0L
 
         @Volatile
         private var sink: EventChannel.EventSink? = null
 
+        /** 实时位置通道（蓝点用，记录/暂停都持续推送）。 */
+        @Volatile
+        private var positionSink: EventChannel.EventSink? = null
+
         fun attachSink(newSink: EventChannel.EventSink?) {
             sink = newSink
+        }
+
+        fun attachPositionSink(newSink: EventChannel.EventSink?) {
+            positionSink = newSink
         }
 
         private fun push(point: Map<String, Any>) {
@@ -66,15 +76,24 @@ class LocationForegroundService : Service() {
             }
         }
 
+        private fun pushPosition(lat: Double, lon: Double) {
+            positionSink?.let {
+                try {
+                    it.success(mapOf("lat" to lat, "lon" to lon))
+                } catch (_: Throwable) {
+                }
+            }
+        }
+
         /** 会话快照：运行状态、持久化状态（1 记录中/0 暂停）、开始时间、累计记录时长、当前段起始、采样点。 */
         fun sessionSnapshot(context: Context): Map<String, Any> {
-            val (state, startMs, activeMs) = readState(context)
+            val s = readState(context)
             return mapOf(
                 "running" to running,
-                "state" to state,
-                "startAt" to startMs,
-                "segmentStart" to segmentStartMs,
-                "activeMs" to activeMs,
+                "state" to s.state,
+                "startAt" to s.startMs,
+                "segmentStart" to s.segmentMs,
+                "activeMs" to s.activeMs,
                 "points" to readPoints(context),
             )
         }
@@ -91,20 +110,29 @@ class LocationForegroundService : Service() {
             File(context.filesDir, STATE_FILE).delete()
         }
 
-        /** 状态文件格式："state|startMs|activeMs"（activeMs=累计记录时长，暂停后不再增长）。 */
-        fun writeState(context: Context, state: String, startMs: Long, activeMs: Long) {
-            File(context.filesDir, STATE_FILE).writeText("$state|$startMs|$activeMs")
+        /** 会话持久化状态；segmentMs=当前记录段起始（暂停为 0），跨进程/被杀恢复计时用。 */
+        data class RecState(
+            val state: String,
+            val startMs: Long,
+            val activeMs: Long,
+            val segmentMs: Long,
+        )
+
+        /** 状态文件格式："state|startMs|activeMs|segmentMs"（activeMs=累计记录时长，暂停后不再增长）。 */
+        fun writeState(context: Context, state: String, startMs: Long, activeMs: Long, segmentMs: Long) {
+            File(context.filesDir, STATE_FILE).writeText("$state|$startMs|$activeMs|$segmentMs")
         }
 
-        fun readState(context: Context): Triple<String, Long, Long> {
+        fun readState(context: Context): RecState {
             val f = File(context.filesDir, STATE_FILE)
-            if (!f.exists()) return Triple(STATE_PAUSED, 0L, 0L)
-            val parts = f.readText().split('|')
-            return if (parts.size >= 2) {
-                Triple(parts[0], parts[1].toLongOrNull() ?: 0L, parts.getOrNull(2)?.toLongOrNull() ?: 0L)
-            } else {
-                Triple(STATE_PAUSED, 0L, 0L)
-            }
+            if (!f.exists()) return RecState(STATE_PAUSED, 0L, 0L, 0L)
+            val p = f.readText().split('|')
+            return RecState(
+                p.getOrNull(0) ?: STATE_PAUSED,
+                p.getOrNull(1)?.toLongOrNull() ?: 0L,
+                p.getOrNull(2)?.toLongOrNull() ?: 0L,
+                p.getOrNull(3)?.toLongOrNull() ?: 0L,
+            )
         }
 
         fun readPoints(context: Context): List<Map<String, Any>> {
@@ -146,6 +174,9 @@ class LocationForegroundService : Service() {
                 return // GPS 刚有 fix 时忽略网络定位，避免轨迹抖动
             }
             if (loc.provider == LocationManager.GPS_PROVIDER) lastGpsMs = System.currentTimeMillis()
+            // 实时位置始终推送（记录/暂停都推），蓝点独立于采样状态
+            pushPosition(loc.latitude, loc.longitude)
+            if (!recording) return // 暂停中不采样，仅推送实时位置
             val last = lastSample
             if (last != null && System.currentTimeMillis() - lastSampleMs < MIN_INTERVAL_MS &&
                 loc.distanceTo(last) < MIN_DIST_M
@@ -176,38 +207,42 @@ class LocationForegroundService : Service() {
         super.onCreate()
         running = true
         startForegroundCompat()
-        // 被杀后系统重启：按上次状态恢复采样（记录中断续记）
-        if (readState(this).first == STATE_RECORDING) {
-            segmentStartMs = System.currentTimeMillis()
-            startUpdates()
-        }
+        // 被杀后系统重启：按上次状态恢复采样（记录中断续记），段起始从状态文件恢复避免计时丢失
+        val s = readState(this)
+        recording = s.state == STATE_RECORDING
+        segmentStartMs = if (recording) (s.segmentMs.takeIf { it > 0 } ?: System.currentTimeMillis()) else 0L
+        if (recording) startUpdates()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_PAUSE -> {
-                val (state, startMs, activeMs) = readState(this)
-                val active = activeMs + if (segmentStartMs > 0) System.currentTimeMillis() - segmentStartMs else 0
+                val s = readState(this)
+                val active = s.activeMs + if (segmentStartMs > 0) System.currentTimeMillis() - segmentStartMs else 0
                 segmentStartMs = 0
-                writeState(this, STATE_PAUSED, startMs, active)
-                stopUpdates()
+                recording = false // 暂停采样；保留定位监听，蓝点仍实时
+                writeState(this, STATE_PAUSED, s.startMs, active, 0)
             }
             ACTION_RESUME -> {
-                val (state, startMs, activeMs) = readState(this)
-                segmentStartMs = System.currentTimeMillis()
-                writeState(this, STATE_RECORDING, startMs, activeMs)
+                val s = readState(this)
+                // 上次记录段未结算（被杀恢复）时延续原段起始，避免计时重置
+                segmentStartMs = if (s.segmentMs > 0) s.segmentMs else System.currentTimeMillis()
+                recording = true
+                writeState(this, STATE_RECORDING, s.startMs, s.activeMs, segmentStartMs)
                 startUpdates()
             }
             ACTION_STOP -> {
                 stopUpdates()
                 segmentStartMs = 0
+                recording = false
                 stopForegroundCompat()
                 stopSelf()
             }
             else -> { // ACTION_START：新会话，清空旧数据
                 deleteSession(this)
                 segmentStartMs = System.currentTimeMillis()
-                writeState(this, STATE_RECORDING, System.currentTimeMillis(), 0)
+                recording = true
+                writeState(this, STATE_RECORDING, segmentStartMs, 0, segmentStartMs)
                 startUpdates()
             }
         }
@@ -240,7 +275,6 @@ class LocationForegroundService : Service() {
         } catch (_: SecurityException) {
             // 定位权限被收回时静默失败，服务不崩
         }
-        sampling = true
     }
 
     private fun stopUpdates() {
@@ -248,7 +282,6 @@ class LocationForegroundService : Service() {
             lm.removeUpdates(listener)
         } catch (_: SecurityException) {
         }
-        sampling = false
     }
 
     private fun startForegroundCompat() {

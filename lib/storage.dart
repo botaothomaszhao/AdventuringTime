@@ -180,8 +180,8 @@ class PersonRepository {
 
   /// 全量备份：仅复制 profile/life/各行程（媒体不进备份，始终留在共用媒体池），
   /// 存到 `backups/<ts>[-<suffix>]/`（同步前、覆盖导入前与手动触发时调用）。
-  /// 若与最近一次备份的文件集合与内容完全一致则跳过，不产生新备份。
-  Future<void> backupAll({String? suffix}) async {
+  /// force=false 时若与最近一次备份的文件集合与内容完全一致则跳过，不产生新备份。
+  Future<void> backupAll({String? suffix, bool force = false}) async {
     final name = suffix == null ? _timestamp() : '${_timestamp()}-$suffix';
     final dest = Directory(p.join(root.path, 'backups', name));
 
@@ -195,7 +195,7 @@ class PersonRepository {
     ];
     final units = [for (final (n, f) in candidates) if (await f.exists()) (n, f)];
 
-    if (await _sameAsLastBackup(units)) return;
+    if (!force && await _sameAsLastBackup(units)) return;
 
     await dest.create(recursive: true);
     for (final (n, f) in units) {

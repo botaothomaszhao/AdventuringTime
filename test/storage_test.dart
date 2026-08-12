@@ -106,6 +106,10 @@ void main() {
     expect(await repo.listBackups(), hasLength(1), reason: '无变化应跳过备份');
 
     await Future<void>.delayed(const Duration(seconds: 1));
+    await repo.backupAll(force: true);
+    expect(await repo.listBackups(), hasLength(2), reason: '手动备份应始终新增');
+
+    await Future<void>.delayed(const Duration(seconds: 1));
     await repo.saveLife(GpxFile(waypoints: [
       Waypoint(
         id: 'w1',
@@ -116,7 +120,7 @@ void main() {
       )
     ]));
     await repo.backupAll();
-    expect(await repo.listBackups(), hasLength(2), reason: '有变化应新增备份');
+    expect(await repo.listBackups(), hasLength(3), reason: '有变化应新增备份');
   });
 
   test('整包备份后可恢复被删行程', () async {
