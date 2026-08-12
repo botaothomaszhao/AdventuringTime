@@ -212,29 +212,31 @@ class TripDetailPage extends ConsumerWidget {
                           : (item.data as Waypoint).name,
                     ),
                     subtitle: Text(item.data is PathData
-                        ? ((item.data as PathData).isGps ? 'GPS 轨迹' : '手绘路径')
+                        ? _pathSubtitle(item.data as PathData)
                         : ((item.data as Waypoint).desc ?? '')),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.arrow_upward, size: 18),
-                          tooltip: '上移',
-                          visualDensity: VisualDensity.compact,
-                          onPressed: item.canUp
-                              ? () => _moveItem(ref, item.data, true)
-                              : null,
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.arrow_downward, size: 18),
-                          tooltip: '下移',
-                          visualDensity: VisualDensity.compact,
-                          onPressed: item.canDown
-                              ? () => _moveItem(ref, item.data, false)
-                              : null,
-                        ),
-                      ],
-                    ),
+                    trailing: (item.data is PathData && (item.data as PathData).isGps)
+                        ? null // GPS 轨迹顺序由记录时间戳决定，无调序按钮
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.arrow_upward, size: 18),
+                                tooltip: '上移',
+                                visualDensity: VisualDensity.compact,
+                                onPressed: item.canUp
+                                    ? () => _moveItem(ref, item.data, true)
+                                    : null,
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.arrow_downward, size: 18),
+                                tooltip: '下移',
+                                visualDensity: VisualDensity.compact,
+                                onPressed: item.canDown
+                                    ? () => _moveItem(ref, item.data, false)
+                                    : null,
+                              ),
+                            ],
+                          ),
                     onTap: () async {
                       if (item.data is PathData) {
                         final p = item.data as PathData;
@@ -341,7 +343,11 @@ class TripDetailPage extends ConsumerWidget {
         keyTime: timeOf(items.first),
         items: [
           for (var i = 0; i < items.length; i++)
-            (data: items[i], canUp: i > 0, canDown: i < items.length - 1),
+            (
+              data: items[i],
+              canUp: i > 0,
+              canDown: i < items.length - 1,
+            ),
         ],
       ));
     }
@@ -414,3 +420,10 @@ List<Waypoint> _allWaypoints(PersonData d) =>
     [...d.life.waypoints, for (final t in d.trips) ...t.gpx.waypoints];
 
 List<PathData> _allPaths(PersonData d) => [for (final t in d.trips) ...t.gpx.paths];
+
+/// 路径列表项副标题：手绘路径只标类型，GPS 轨迹附加速度统计。
+String _pathSubtitle(PathData p) {
+  if (!p.isGps) return '手绘路径';
+  final s = pathSpeedStats(p.points);
+  return 'GPS 轨迹 · 平均 ${formatSpeedKmh(s.avgMps)} · 最高瞬时 ${formatSpeedKmh(s.maxMps)}';
+}

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -20,6 +21,10 @@ class LocationService {
   static Future<void> start() => _channel.invokeMethod('start');
   static Future<void> pause() => _channel.invokeMethod('pause');
   static Future<void> resume() => _channel.invokeMethod('resume');
+
+  /// 前台/后台模式：前台 1s 定位（蓝点+轨迹），后台降频只采样。服务未运行时 no-op。
+  static Future<void> setMode(String mode) =>
+      _channel.invokeMethod('setMode', mode);
 
   /// 停止记录并取回本次会话全部采样点（原生侧已清空会话文件）。
   static Future<List<RawPoint>> stop() async =>
@@ -150,6 +155,7 @@ class RecordingNotifier extends Notifier<RecordState> {
     _lastRawTime = s.points.isEmpty ? null : s.points.last.time;
     if (wasRecording && !s.running) {
       await LocationService.resume();
+      await _syncMode();
     }
     state = RecordState(
       wasRecording ? RecordStatus.recording : RecordStatus.paused,
@@ -162,10 +168,18 @@ class RecordingNotifier extends Notifier<RecordState> {
     _sub ??= LocationService.rawPoints().listen(_onRaw);
   }
 
+  /// 按当前 app 前后台同步服务定位频率（记录开始/恢复后服务刚启动，需纠正模式）。
+  Future<void> _syncMode() async {
+    final l = WidgetsBinding.instance.lifecycleState;
+    await LocationService.setMode(
+        l == AppLifecycleState.resumed ? 'foreground' : 'background');
+  }
+
   Future<void> start() async {
     _sub ??= LocationService.rawPoints().listen(_onRaw);
     state = RecordState(RecordStatus.recording, [], 0, DateTime.now(), 0, DateTime.now());
     await LocationService.start();
+    await _syncMode();
   }
 
   Future<void> pause() async {
@@ -178,6 +192,7 @@ class RecordingNotifier extends Notifier<RecordState> {
 
   Future<void> resume() async {
     await LocationService.resume();
+    await _syncMode();
     state = RecordState(RecordStatus.recording, state.points, state.meters, state.startedAt,
         state.recordingSeconds, DateTime.now());
   }

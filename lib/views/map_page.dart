@@ -55,7 +55,7 @@ class _Selected {
 }
 
 class _MapPageState extends ConsumerState<MapPage>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   final MapController _mapCtrl = MapController();
   final Map<String, _LayerToggles> _toggles = {};
   _EditMode _mode = _EditMode.none;
@@ -69,10 +69,11 @@ class _MapPageState extends ConsumerState<MapPage>
   final Map<String, List<LatLng>> _translateOrig = {};
   String? _pendingTripId; // 添加地点模式的目标行程（从行程弹窗进入时预选）
   DiskCachedTileProvider? _tileProvider;
-  LatLng? _myPos; // 实时定位点（空闲时 geolocator 流）
-  LatLng? _livePos; // 会话期间前台服务实时位置（记录/暂停都持续推送）
+  LatLng? _myPos; // 实时定位点（空闲/暂停时 geolocator 流，仅前台订阅）
+  LatLng? _livePos; // 记录中前台服务实时位置
   StreamSubscription<Position>? _posSub;
   StreamSubscription<LatLng>? _liveSub;
+  bool _locPermissionOk = false;
   int _activePointers = 0; // 地图上当前按下的触点数量
 
   static const _palette = [
@@ -93,41 +94,69 @@ class _MapPageState extends ConsumerState<MapPage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initTileProvider();
     if (Platform.isAndroid) _initMyLocation();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _posSub?.cancel();
     _liveSub?.cancel();
     super.dispose();
   }
 
-  /// 蓝点：请求定位权限并订阅实时位置。空闲时用 geolocator 流；
-  /// 记录会话期间改用前台服务推送的实时位置（服务持续定位，蓝点不受暂停/采样影响）。
+  /// 前后台切换：前台恢复定位（服务 1s、geolocator 蓝点），后台降频/停止定位。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!Platform.isAndroid) return;
+    if (state == AppLifecycleState.resumed) {
+      LocationService.setMode('foreground');
+      if (_locPermissionOk && _posSub == null) _subscribeGeo();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      LocationService.setMode('background');
+      _posSub?.cancel();
+      _posSub = null;
+    }
+  }
+
+  /// 蓝点：请求定位权限并订阅实时位置。空闲/暂停时用 geolocator 流；
+  /// 记录中（前台）用前台服务推送的实时位置。
   Future<void> _initMyLocation() async {
     if (!await LocationService.ensureLocationPermission()) return;
     if (!mounted) return;
+    _locPermissionOk = true;
+    _subscribeGeo();
+    _liveSub = LocationService.positions().listen((ll) {
+      if (mounted) setState(() => _livePos = ll);
+    });
+    final l = WidgetsBinding.instance.lifecycleState;
+    await LocationService.setMode(
+        l == AppLifecycleState.resumed ? 'foreground' : 'background');
+  }
+
+  void _subscribeGeo() {
     _posSub =
         Geolocator.getPositionStream(
           locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            distanceFilter: 5,
+            accuracy: LocationAccuracy.medium,
+            distanceFilter: 10,
           ),
         ).listen((p) {
           if (mounted) setState(() => _myPos = LatLng(p.latitude, p.longitude));
         });
-    _liveSub = LocationService.positions().listen((ll) {
-      if (mounted) setState(() => _livePos = ll);
-    });
   }
 
-  /// 蓝点实时位置：空闲时用 geolocator 流；记录会话期间（记录/暂停）用前台服务
-  /// 推送的实时位置——服务持续定位，蓝点独立于采样/暂停状态，始终实时不跳变。
+  /// 蓝点实时位置：空闲/暂停用 geolocator 流；记录中（前台）用服务位置流。
   LatLng? _currentBluePos(RecordState? rec) {
-    final active = rec != null && rec.status != RecordStatus.idle;
-    if (active && _livePos != null) return _livePos;
+    if (rec != null &&
+        rec.status == RecordStatus.recording &&
+        _livePos != null) {
+      return _livePos;
+    }
     return _myPos;
   }
 
@@ -464,24 +493,30 @@ class _MapPageState extends ConsumerState<MapPage>
     final length = formatMeters(
       pathLengthM([for (final pt in p.points) pt.latLng]),
     );
+    var speed = '';
+    if (p.isGps) {
+      final s = pathSpeedStats(p.points);
+      speed = ' · 平均 ${formatSpeedKmh(s.avgMps)} · 最高瞬时 ${formatSpeedKmh(s.maxMps)}';
+    }
     setState(() {
       _selected = _Selected(
         label: p.name.isEmpty ? '（未命名路径）' : p.name,
         detail:
-            '${p.isGps ? 'GPS 轨迹' : '手绘路径'} · 长度 $length${p.desc != null ? '\n${p.desc}' : ''}',
+            '${p.isGps ? 'GPS 轨迹' : '手绘路径'} · 长度 $length$speed${p.desc != null ? '\n${p.desc}' : ''}',
         actions: () {
           return [
-            ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('编辑路径'),
-              onTap: () {
-                _closeSheet();
-                setState(() {
-                  _mode = _EditMode.editPath;
-                  _editKey = '$tripId|${p.id}';
-                });
-              },
-            ),
+            if (!p.isGps)
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('编辑路径'),
+                onTap: () {
+                  _closeSheet();
+                  setState(() {
+                    _mode = _EditMode.editPath;
+                    _editKey = '$tripId|${p.id}';
+                  });
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.edit_note_outlined),
               title: const Text('编辑信息'),
@@ -919,6 +954,21 @@ class _MapPageState extends ConsumerState<MapPage>
         .maybeWhen(data: (u) => u, orElse: () => '');
     // 记录会话状态（仅 Android，Windows 不 watch 避免调用原生通道）
     final rec = Platform.isAndroid ? ref.watch(recordingProvider) : null;
+    // 记录中停用 geolocator 蓝点流（位置由前台服务喂），避免双 GPS 请求与暂停时的旧位置跳变
+    if (Platform.isAndroid) {
+      ref.listen(recordingProvider, (prev, next) {
+        final wasRec = prev?.status == RecordStatus.recording;
+        final isRec = next.status == RecordStatus.recording;
+        if (wasRec != isRec) {
+          if (isRec) {
+            _posSub?.cancel();
+            _posSub = null;
+          } else if (_locPermissionOk && _posSub == null) {
+            _subscribeGeo();
+          }
+        }
+      });
+    }
     // 绘制模式下保留拖动/缩放，但关闭双击缩放（双击用于结束绘制）；整体平移禁用缩放防误触
     var flags = InteractiveFlag.all;
     if (_mode == _EditMode.translatePath) {
@@ -1835,6 +1885,15 @@ class _RecordHudState extends State<_RecordHud> {
             const SizedBox(width: 10),
             Text(
               formatMeters(rec.meters),
+              style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              formatSpeedKmh(
+                rec.status == RecordStatus.recording
+                    ? currentSpeedMps(rec.points)
+                    : null,
+              ),
               style: const TextStyle(fontSize: 13),
             ),
             IconButton(

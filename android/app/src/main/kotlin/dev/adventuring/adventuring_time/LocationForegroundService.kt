@@ -20,8 +20,9 @@ import java.io.File
 
 /**
  * 前台轨迹记录服务：系统 LocationManager 持续定位（GPS 优先、网络兜底），
- * 按"位移 > 20m 或间隔 > 30s"采样，点即写落盘（JSONL 会话文件）并推送 EventChannel；
- * 同时把每次定位实时推送到位置通道，供地图蓝点使用（暂停时也推送，蓝点不中断）。
+ * 仅"记录中"运行——暂停/空闲时服务停止、通知消失；按"位移 > 20m 或间隔 > 30s"采样，
+ * 点即写落盘（JSONL 会话文件）并推送 EventChannel；记录中且前台时额外把实时位置
+ * 推送到位置通道供地图蓝点使用。
  * 会话与状态持久化：app/服务被杀后，START_STICKY 重启时按状态文件恢复采样，
  * 重进应用从文件拉回全部点，数据不丢、记录不中断；记录段起始一并持久化，计时不重置。
  */
@@ -39,14 +40,23 @@ class LocationForegroundService : Service() {
         const val ACTION_PAUSE = "pause"
         const val ACTION_RESUME = "resume"
         const val ACTION_STOP = "stop"
+        const val ACTION_MODE_FOREGROUND = "mode_foreground"
+        const val ACTION_MODE_BACKGROUND = "mode_background"
+
+        const val MODE_FOREGROUND = "foreground"
+        const val MODE_BACKGROUND = "background"
 
         @Volatile
         var running = false
             private set
 
-        /** 是否正在采样轨迹点（暂停时为 false；定位监听保留，蓝点仍实时）。 */
+        /** 是否正在采样轨迹点（暂停时为 false）。 */
         @Volatile
         private var recording = false
+
+        /** 前台/后台模式：前台 1s 定位喂蓝点，后台降频只采样。 */
+        @Volatile
+        private var mode = MODE_BACKGROUND
 
         /** 当前记录段起始时间（ms）：暂停置 0；被系统重启时从状态文件恢复，用于累计记录时长。 */
         @Volatile
@@ -174,9 +184,7 @@ class LocationForegroundService : Service() {
                 return // GPS 刚有 fix 时忽略网络定位，避免轨迹抖动
             }
             if (loc.provider == LocationManager.GPS_PROVIDER) lastGpsMs = System.currentTimeMillis()
-            // 实时位置始终推送（记录/暂停都推），蓝点独立于采样状态
-            pushPosition(loc.latitude, loc.longitude)
-            if (!recording) return // 暂停中不采样，仅推送实时位置
+            if (!recording) return // 暂停/空闲不采样（暂停时服务已停）
             val last = lastSample
             if (last != null && System.currentTimeMillis() - lastSampleMs < MIN_INTERVAL_MS &&
                 loc.distanceTo(last) < MIN_DIST_M
@@ -191,6 +199,8 @@ class LocationForegroundService : Service() {
                 "lon" to loc.longitude,
                 "time" to loc.time,
             ))
+            // 仅前台推实时位置给蓝点；后台不推（蓝点不可见）
+            if (mode == MODE_FOREGROUND) pushPosition(loc.latitude, loc.longitude)
         }
 
         @Deprecated("Deprecated in Java")
@@ -206,6 +216,7 @@ class LocationForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         running = true
+        mode = MODE_BACKGROUND // 系统重启场景视为后台，Dart 前台时会纠正
         startForegroundCompat()
         // 被杀后系统重启：按上次状态恢复采样（记录中断续记），段起始从状态文件恢复避免计时丢失
         val s = readState(this)
@@ -220,8 +231,10 @@ class LocationForegroundService : Service() {
                 val s = readState(this)
                 val active = s.activeMs + if (segmentStartMs > 0) System.currentTimeMillis() - segmentStartMs else 0
                 segmentStartMs = 0
-                recording = false // 暂停采样；保留定位监听，蓝点仍实时
+                recording = false
                 writeState(this, STATE_PAUSED, s.startMs, active, 0)
+                stopUpdates()
+                stopSelf() // 暂停不请求定位，停服务让通知消失
             }
             ACTION_RESUME -> {
                 val s = readState(this)
@@ -237,6 +250,14 @@ class LocationForegroundService : Service() {
                 recording = false
                 stopForegroundCompat()
                 stopSelf()
+            }
+            ACTION_MODE_FOREGROUND -> {
+                mode = MODE_FOREGROUND
+                if (recording) startUpdates() // 重注册为前台频率
+            }
+            ACTION_MODE_BACKGROUND -> {
+                mode = MODE_BACKGROUND
+                if (recording) startUpdates() // 重注册为后台低频
             }
             else -> { // ACTION_START：新会话，清空旧数据
                 deleteSession(this)
@@ -269,9 +290,11 @@ class LocationForegroundService : Service() {
         val netOn = lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
         if (!gpsOn && !netOn) return
         stopUpdates()
+        // 前台 1s（蓝点实时），后台降频 10s（采样阈值 20m/30s，低频无损）
+        val minTime = if (mode == MODE_FOREGROUND) 1_000L else 10_000L
         try {
-            if (gpsOn) lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, listener)
-            if (netOn) lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000L, 0f, listener)
+            if (gpsOn) lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, minTime, 0f, listener)
+            if (netOn) lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, minTime, 0f, listener)
         } catch (_: SecurityException) {
             // 定位权限被收回时静默失败，服务不崩
         }

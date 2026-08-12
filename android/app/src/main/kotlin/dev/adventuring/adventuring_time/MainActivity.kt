@@ -68,6 +68,18 @@ class MainActivity : FlutterActivity() {
                     sendAction(LocationForegroundService.ACTION_STOP)
                 }
                 "getSession" -> result.success(LocationForegroundService.sessionSnapshot(this))
+                "setMode" -> {
+                    // 服务未运行时不启动（空闲/暂停时无需调频）
+                    if (LocationForegroundService.running) {
+                        when (call.arguments as? String) {
+                            "foreground" ->
+                                sendAction(LocationForegroundService.ACTION_MODE_FOREGROUND)
+                            "background" ->
+                                sendAction(LocationForegroundService.ACTION_MODE_BACKGROUND)
+                        }
+                    }
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }

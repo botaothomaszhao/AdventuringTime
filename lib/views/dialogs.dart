@@ -557,6 +557,12 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
     };
   }
 
+  /// GPS 轨迹速度统计摘要（编辑既有路径时展示）。
+  String _speedSummary() {
+    final s = pathSpeedStats(widget.existing!.points);
+    return '平均 ${formatSpeedKmh(s.avgMps)} · 最高瞬时 ${formatSpeedKmh(s.maxMps)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -598,14 +604,20 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
                 ),
               ],
             ),
-          ] else
+          ] else ...[
             Padding(
-              padding: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.only(top: 12, bottom: 4),
               child: Text(
                 _time == null ? 'GPS 轨迹' : 'GPS 轨迹 · ${_fmtTime()}',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                style: const TextStyle(fontSize: 14, color: Colors.grey),
               ),
             ),
+            Text(
+              _speedSummary(),
+              style: const TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+          ],
           const SizedBox(height: 8),
           Text(
             '照片',

@@ -43,18 +43,16 @@ void main() {
       ]);
       final e3 = ev('e3', DateTime.utc(2010, 1, 1), const LatLng(3, 3));
       final r = buildLifePath([e3, e1], [t2]);
-      // 事件1 → 行程起点 直线(虚线)；行程内部 实线；行程尾 → 事件3 直线(虚线)
+      // 事件1 → 路径起点、路径终点 → 事件3 均为虚线；轨迹线不重复画路径本身
       final dashed = r.segs.where((s) => !s.recorded).toList();
       final solid = r.segs.where((s) => s.recorded).toList();
       expect(dashed, hasLength(2));
-      expect(solid, hasLength(1));
+      expect(solid, isEmpty);
       expect(dashed.first.from, const LatLng(0, 0));
       expect(dashed.first.to, const LatLng(1, 1));
-      expect(solid.first.from, const LatLng(1, 1));
-      expect(solid.first.to, const LatLng(1, 2));
       expect(dashed.last.from, const LatLng(1, 2));
       expect(dashed.last.to, const LatLng(3, 3));
-      // 里程：实线 = 1°纬距，虚线 = 2 段各 1° 经距 + 1° 纬距
+      // 记录里程来自 GPS 轨迹本身；虚线为推算连接段
       expect(r.recordedMeters, closeTo(haversineM(const LatLng(1, 1), const LatLng(1, 2)), 1e-6));
       expect(r.estimatedMeters,
           closeTo(haversineM(const LatLng(0, 0), const LatLng(1, 1)) + haversineM(const LatLng(1, 2), const LatLng(3, 3)), 1e-6));
@@ -104,8 +102,8 @@ void main() {
         ),
       ]);
       final r = buildLifePath([], [t]);
-      // 实线2段 + 虚线1段（s1尾→s2首）
-      expect(r.segs.where((s) => s.recorded), hasLength(2));
+      // 只画路径间连接虚线（s1尾→s2首），不重复画路径本身
+      expect(r.segs.where((s) => s.recorded), isEmpty);
       expect(r.segs.where((s) => !s.recorded), hasLength(1));
       expect(r.segs.firstWhere((s) => !s.recorded).from, const LatLng(0, 1));
       expect(r.segs.firstWhere((s) => !s.recorded).to, const LatLng(0, 2));
@@ -160,19 +158,19 @@ void main() {
       );
       final r = buildLifePath([start, end], [t]);
       final tripSegs = r.segs.where((s) => s.tripId == 't').toList();
-      // 起点(2005-1-1前) → w1(1-2) → w2(1-3) → p1(1-4)实线 → 终点
+      // 起点 → w1(1-2) → w2(1-3) → p1首(1-4) → p1尾 → 终点
       // 顺序断言：按 from 坐标 (0,0)→(1,0)→(2,0)→(3,0)→(4,0)→(5,0)
-      expect(tripSegs.length, greaterThanOrEqualTo(5));
+      expect(tripSegs, hasLength(4));
       expect(tripSegs.first.from, const LatLng(0, 0));
       expect(tripSegs.last.to, const LatLng(5, 0));
-      // 路径内部为实线，其余为虚线
-      expect(tripSegs.where((s) => s.recorded), hasLength(1));
+      // 全部为连接虚线，不重复画路径本身
+      expect(tripSegs.where((s) => s.recorded), isEmpty);
       final pts = [for (final s in tripSegs) s.from, tripSegs.last.to];
+      // p1 内部 (3,0)→(4,0) 不重复绘制，故 pts 缺中间段
       expect(pts, [
         const LatLng(0, 0),
         const LatLng(1, 0),
         const LatLng(2, 0),
-        const LatLng(3, 0),
         const LatLng(4, 0),
         const LatLng(5, 0),
       ]);
@@ -214,6 +212,43 @@ void main() {
       expect(r.segs.every((s) => !s.recorded), true);
       expect(r.segs.last.from, const LatLng(0, 0));
       expect(r.segs.last.to, const LatLng(0, 1));
+    });
+
+    test('行程内连接顺序优先 orderIds', () {
+      final t = TripBundle(
+        meta: Trip(
+          id: 't',
+          name: 't',
+          startDate: DateTime.utc(2005, 1, 1),
+          createdAt: DateTime.utc(2005, 1, 1),
+          updatedAt: DateTime.utc(2005, 1, 1),
+        ),
+        gpx: GpxFile(
+          orderIds: ['w2', 'w1'],
+          waypoints: [
+            Waypoint(
+              id: 'w1',
+              name: 'w1',
+              latLng: const LatLng(1, 0),
+              time: DateTime.utc(2005, 1, 2),
+              createdAt: DateTime.utc(2005, 1, 1),
+              updatedAt: DateTime.utc(2005, 1, 1),
+            ),
+            Waypoint(
+              id: 'w2',
+              name: 'w2',
+              latLng: const LatLng(2, 0),
+              time: DateTime.utc(2005, 1, 1),
+              createdAt: DateTime.utc(2005, 1, 1),
+              updatedAt: DateTime.utc(2005, 1, 1),
+            ),
+          ],
+        ),
+      );
+      final r = buildLifePath([], [t]);
+      // 无起点引用：w2 → w1（按 orderIds），连线 w2→w1
+      expect(r.segs.single.from, const LatLng(2, 0));
+      expect(r.segs.single.to, const LatLng(1, 0));
     });
 
     test('行程无路径无地点：仅起点终点长期地点连成一段', () {
@@ -263,6 +298,79 @@ void main() {
       expect(s.placeCount, 1);
       expect(s.pathCount, 1);
       expect(s.mediaCount, 2);
+    });
+
+    test('pathSpeedStats 平均与最高瞬时速度', () {
+      // 等间隔采样：2 段各 1° 纬距 / 10s
+      final pts = [
+        TrackPoint(const LatLng(0, 0), DateTime.utc(2024, 7, 1, 0, 0, 0)),
+        TrackPoint(const LatLng(0, 1), DateTime.utc(2024, 7, 1, 0, 0, 10)),
+        TrackPoint(const LatLng(0, 2), DateTime.utc(2024, 7, 1, 0, 0, 20)),
+      ];
+      final s = pathSpeedStats(pts);
+      final d = haversineM(const LatLng(0, 0), const LatLng(0, 1));
+      expect(s.maxMps, closeTo(d / 10, 1e-6));
+      expect(s.avgMps, closeTo(2 * d / 20, 1e-6));
+    });
+
+    test('pathSpeedStats 跳过超长间隔段，平均按起终点时间', () {
+      // 第二段间隔 60s（暂停/无信号），不计入瞬时速度；平均仍按首尾时间差
+      final pts = [
+        TrackPoint(const LatLng(0, 0), DateTime.utc(2024, 7, 1, 0, 0, 0)),
+        TrackPoint(const LatLng(0, 1), DateTime.utc(2024, 7, 1, 0, 0, 10)),
+        TrackPoint(const LatLng(0, 2), DateTime.utc(2024, 7, 1, 0, 1, 10)),
+      ];
+      final s = pathSpeedStats(pts);
+      final d = haversineM(const LatLng(0, 0), const LatLng(0, 1));
+      expect(s.maxMps, closeTo(d / 10, 1e-6));
+      expect(s.avgMps, closeTo(2 * d / 70, 1e-6));
+    });
+
+    test('pathSpeedStats 最高瞬时取速度最大的相邻段', () {
+      final pts = [
+        TrackPoint(const LatLng(0, 0), DateTime.utc(2024, 7, 1, 0, 0, 0)),
+        TrackPoint(const LatLng(0, 1), DateTime.utc(2024, 7, 1, 0, 0, 10)),
+        TrackPoint(const LatLng(0, 3), DateTime.utc(2024, 7, 1, 0, 0, 20)),
+      ];
+      final s = pathSpeedStats(pts);
+      final slow = haversineM(const LatLng(0, 0), const LatLng(0, 1)) / 10;
+      final fast = haversineM(const LatLng(0, 1), const LatLng(0, 3)) / 10;
+      expect(fast, greaterThan(slow));
+      expect(s.maxMps, closeTo(fast, 1e-6));
+    });
+
+    test('pathSpeedStats 单点或无时间返回 null', () {
+      final t = DateTime.utc(2024, 7, 1);
+      final s1 = pathSpeedStats([TrackPoint(const LatLng(0, 0), t)]);
+      expect(s1.avgMps, isNull);
+      expect(s1.maxMps, isNull);
+      final s2 = pathSpeedStats([
+        TrackPoint(const LatLng(0, 0)),
+        TrackPoint(const LatLng(0, 1)),
+      ]);
+      expect(s2.avgMps, isNull);
+      expect(s2.maxMps, isNull);
+    });
+
+    test('currentSpeedMps 最近两点速度，超长间隔返回 null', () {
+      final d = haversineM(const LatLng(0, 0), const LatLng(0, 1));
+      final normal = [
+        TrackPoint(const LatLng(0, 0), DateTime.utc(2024, 7, 1, 0, 0, 0)),
+        TrackPoint(const LatLng(0, 1), DateTime.utc(2024, 7, 1, 0, 0, 10)),
+      ];
+      expect(currentSpeedMps(normal), closeTo(d / 10, 1e-6));
+      final gap = [
+        TrackPoint(const LatLng(0, 0), DateTime.utc(2024, 7, 1, 0, 0, 0)),
+        TrackPoint(const LatLng(0, 1), DateTime.utc(2024, 7, 1, 0, 1, 0)),
+      ];
+      expect(currentSpeedMps(gap), isNull);
+      expect(currentSpeedMps([TrackPoint(const LatLng(0, 0), DateTime.utc(2024, 7, 1))]), isNull);
+    });
+
+    test('formatSpeedKmh 格式化', () {
+      expect(formatSpeedKmh(null), '--');
+      expect(formatSpeedKmh(10), '36.0 km/h');
+      expect(formatSpeedKmh(2.7778), '10.0 km/h');
     });
   });
 

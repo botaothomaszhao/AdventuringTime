@@ -52,8 +52,8 @@ class LifePathResult {
 List<LatLng> _pathPoints(PathData p) => [for (final pt in p.points) pt.latLng];
 
 /// 构建人生轨迹线：全部长期地点 + 全部行程按时间排序，相邻项连接，
-/// 实线=实际记录段，虚线=推算直线段。统计实/虚里程。
-/// 行程内部：路径、地点、起点长期地点按时间顺序相连，最后连回终点长期地点。
+/// 虚线=推算直线段。行程内部：地点与路径按行程内顺序（orderIds 优先，否则按时间）
+/// 依次相连，路径只连接其首尾（不重复绘制路径本身），最后连回终点长期地点。
 /// 相邻项连接段归属行程时（任一端为行程）标行程 id，供地图点击打开行程。
 LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
   final segs = <LifeSeg>[];
@@ -91,48 +91,42 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
     final itemSegs = <LifeSeg>[];
     final startWp = findWp(t.meta.startEventId);
     final endWp = findWp(t.meta.endEventId);
-    // 行程内节点：路径（首点时间或创建时间）、地点（到达时间）、起点长期地点（最早时间）
-    final nodes = <({DateTime time, PathData? path, LatLng point})>[];
+    // 行程内节点：路径（首/尾点）与地点；顺序优先 orderIds，否则按时间
+    final nodes = <_TripNode>[];
     for (final p in t.gpx.paths) {
       if (p.points.isEmpty) continue;
-      nodes.add((time: p.points.first.time ?? p.createdAt, path: p, point: p.points.first.latLng));
+      nodes.add(_TripNode(path: p));
     }
     for (final w in t.gpx.waypoints) {
-      nodes.add((time: w.sortTime ?? w.createdAt, path: null, point: w.latLng));
+      nodes.add(_TripNode(wp: w));
     }
-    if (startWp != null) {
-      var earliest = nodes.isEmpty ? t.meta.startDate ?? t.meta.createdAt : nodes.first.time;
-      for (final n in nodes) {
-        if (n.time.isBefore(earliest)) earliest = n.time;
-      }
-      nodes.add((
-        time: earliest.subtract(const Duration(seconds: 1)),
-        path: null,
-        point: startWp.latLng,
-      ));
+    final orderIds = t.gpx.orderIds;
+    final covered = orderIds.isNotEmpty && nodes.every((n) => orderIds.contains(n.id));
+    if (covered) {
+      nodes.sort((a, b) => orderIds.indexOf(a.id).compareTo(orderIds.indexOf(b.id)));
+    } else {
+      nodes.sort((a, b) => a.time.compareTo(b.time));
     }
-    nodes.sort((a, b) => a.time.compareTo(b.time));
-    // 按时间顺序连接：路径内部实线，节点之间虚线
-    LatLng? prev;
+    // 起点长期地点置于最前，相邻节点间连虚线；路径仅连首尾，不重复画路径
+    LatLng? prev = startWp?.latLng;
     for (final n in nodes) {
       final p = n.path;
       if (p != null) {
         if (prev != null) itemSegs.add(LifeSeg(prev, p.points.first.latLng, false, t.meta.id));
-        for (var i = 1; i < p.points.length; i++) {
-          itemSegs.add(LifeSeg(p.points[i - 1].latLng, p.points[i].latLng, true, t.meta.id));
-        }
         prev = p.points.last.latLng;
       } else {
-        if (prev != null) itemSegs.add(LifeSeg(prev, n.point, false, t.meta.id));
-        prev = n.point;
+        if (prev != null) itemSegs.add(LifeSeg(prev, n.wp!.latLng, false, t.meta.id));
+        prev = n.wp!.latLng;
       }
     }
     // 最后连回终点长期地点
     if (endWp != null && prev != null) {
       itemSegs.add(LifeSeg(prev, endWp.latLng, false, t.meta.id));
     }
-    final first = itemSegs.isEmpty ? startWp?.latLng : itemSegs.first.from;
-    final last = endWp?.latLng ?? (itemSegs.isEmpty ? startWp?.latLng : itemSegs.last.to);
+    final first = startWp?.latLng ??
+        (nodes.isEmpty ? null : (nodes.first.path?.points.first.latLng ?? nodes.first.wp!.latLng));
+    final last = endWp?.latLng ??
+        (nodes.isEmpty ? null : (nodes.last.path?.points.last.latLng ?? nodes.last.wp!.latLng));
     items.add(_LifeItem(
       time: t.meta.startDate ?? t.meta.createdAt,
       created: t.meta.createdAt,
@@ -156,7 +150,7 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
     add(a.last!, b.first!, false, b.tripId ?? a.tripId);
   }
 
-  // 收集所有段并统计
+  // 收集所有段并统计；记录里程独立统计全部 GPS 轨迹（轨迹线不再重复画路径）
   for (final item in items) {
     segs.addAll(item.segs);
   }
@@ -170,7 +164,28 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
       estimated += d;
     }
   }
+  if (recorded == 0) {
+    for (final t in trips) {
+      for (final trk in t.gpx.tracks) {
+        recorded += pathLengthM(_pathPoints(trk));
+      }
+    }
+  }
   return LifePathResult(segs, recorded, estimated);
+}
+
+class _TripNode {
+  final DateTime time;
+  final String id;
+  final PathData? path;
+  final Waypoint? wp;
+
+  _TripNode({this.path, this.wp})
+      : assert(path != null || wp != null),
+        time = path != null
+            ? path.points.first.time ?? path.createdAt
+            : (wp!.time ?? wp!.createdAt),
+        id = path != null ? path.id : wp!.id;
 }
 
 class _LifeItem {
@@ -280,3 +295,66 @@ String formatLatLng(LatLng ll) {
   final ew = ll.longitude >= 0 ? 'E' : 'W';
   return '${ll.latitude.abs().toStringAsFixed(5)}°$ns ${ll.longitude.abs().toStringAsFixed(5)}°$ew';
 }
+
+/// 相邻采样点速度统计的间隔上限（秒）。原生采样阈值 30s，正常点对间隔必 ≤30s，
+/// 超过即为暂停/无信号/大退造成的无效段，速度不可靠，不参与统计。
+const int maxSpeedGapSec = 31;
+
+/// 相邻采样点间速度（m/s）：跳过无时间与超长间隔的点对。
+List<double> _segmentSpeeds(List<TrackPoint> pts) {
+  final out = <double>[];
+  for (var i = 1; i < pts.length; i++) {
+    final t0 = pts[i - 1].time;
+    final t1 = pts[i].time;
+    if (t0 == null || t1 == null) continue;
+    final dt = t1.difference(t0).inSeconds;
+    if (dt <= 0 || dt > maxSpeedGapSec) continue;
+    out.add(haversineM(pts[i - 1].latLng, pts[i].latLng) / dt);
+  }
+  return out;
+}
+
+/// GPS 路径速度统计。
+class PathSpeedStats {
+  /// 平均速度（m/s）：总路程 / 起终点时间差，暂停时间计入首尾差。
+  final double? avgMps;
+
+  /// 最高瞬时速度（m/s）：相邻实际数据点最大，跳过超长间隔；无有效段为 null。
+  final double? maxMps;
+
+  const PathSpeedStats(this.avgMps, this.maxMps);
+}
+
+PathSpeedStats pathSpeedStats(List<TrackPoint> pts) {
+  final meters = pathLengthM([for (final p in pts) p.latLng]);
+  double? avg;
+  final first = pts.isEmpty ? null : pts.first.time;
+  final last = pts.isEmpty ? null : pts.last.time;
+  if (first != null && last != null) {
+    final dt = last.difference(first).inSeconds;
+    if (dt > 0) avg = meters / dt;
+  }
+  double? max;
+  for (final v in _segmentSpeeds(pts)) {
+    if (max == null || v > max) max = v;
+  }
+  return PathSpeedStats(avg, max);
+}
+
+/// 最近两点瞬时速度（m/s）。点数不足 2 或最近点对间隔超长（暂停刚恢复）时
+/// 返回 null，表示当前速度未知。
+double? currentSpeedMps(List<TrackPoint> pts) {
+  if (pts.length < 2) return null;
+  final a = pts[pts.length - 2];
+  final b = pts.last;
+  final t0 = a.time;
+  final t1 = b.time;
+  if (t0 == null || t1 == null) return null;
+  final dt = t1.difference(t0).inSeconds;
+  if (dt <= 0 || dt > maxSpeedGapSec) return null;
+  return haversineM(a.latLng, b.latLng) / dt;
+}
+
+/// 速度格式化："--" / "12.3 km/h"。
+String formatSpeedKmh(double? mps) =>
+    mps == null ? '--' : '${(mps * 3.6).toStringAsFixed(1)} km/h';
