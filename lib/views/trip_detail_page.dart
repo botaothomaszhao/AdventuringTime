@@ -425,5 +425,5 @@ List<PathData> _allPaths(PersonData d) => [for (final t in d.trips) ...t.gpx.pat
 String _pathSubtitle(PathData p) {
   if (!p.isGps) return '手绘路径';
   final s = pathSpeedStats(p.points);
-  return 'GPS 轨迹 · 平均 ${formatSpeedKmh(s.avgMps)} · 最高瞬时 ${formatSpeedKmh(s.maxMps)}';
+  return 'GPS 轨迹 · 平均 ${formatSpeedKmh(s.avgMps)} · 最高 ${formatSpeedKmh(s.maxMps)}';
 }

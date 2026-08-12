@@ -560,7 +560,7 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
   /// GPS 轨迹速度统计摘要（编辑既有路径时展示）。
   String _speedSummary() {
     final s = pathSpeedStats(widget.existing!.points);
-    return '平均 ${formatSpeedKmh(s.avgMps)} · 最高瞬时 ${formatSpeedKmh(s.maxMps)}';
+    return '平均 ${formatSpeedKmh(s.avgMps)} · 最高 ${formatSpeedKmh(s.maxMps)}';
   }
 
   @override

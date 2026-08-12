@@ -496,7 +496,7 @@ class _MapPageState extends ConsumerState<MapPage>
     var speed = '';
     if (p.isGps) {
       final s = pathSpeedStats(p.points);
-      speed = ' · 平均 ${formatSpeedKmh(s.avgMps)} · 最高瞬时 ${formatSpeedKmh(s.maxMps)}';
+      speed = ' · 平均 ${formatSpeedKmh(s.avgMps)} · 最高 ${formatSpeedKmh(s.maxMps)}';
     }
     setState(() {
       _selected = _Selected(

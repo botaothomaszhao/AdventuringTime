@@ -297,29 +297,31 @@ String formatLatLng(LatLng ll) {
 }
 
 /// 相邻采样点速度统计的间隔上限（秒）。原生采样阈值 30s，正常点对间隔必 ≤30s，
-/// 超过即为暂停/无信号/大退造成的无效段，速度不可靠，不参与统计。
+/// 超过即为暂停/无信号/假首点造成的无效段，速度不可靠，不参与统计。
 const int maxSpeedGapSec = 31;
 
-/// 相邻采样点间速度（m/s）：跳过无时间与超长间隔的点对。
-List<double> _segmentSpeeds(List<TrackPoint> pts) {
-  final out = <double>[];
+/// 有效相邻段（间隔 ≤31s 且时间正序），返回每段距离（m）与时长（s）。
+/// 排除暂停/无信号/假首点造成的超长间隔段；avg 与 max 共用同一批段，口径一致。
+List<({double dist, int secs})> _validSegments(List<TrackPoint> pts) {
+  final out = <({double dist, int secs})>[];
   for (var i = 1; i < pts.length; i++) {
     final t0 = pts[i - 1].time;
     final t1 = pts[i].time;
     if (t0 == null || t1 == null) continue;
     final dt = t1.difference(t0).inSeconds;
     if (dt <= 0 || dt > maxSpeedGapSec) continue;
-    out.add(haversineM(pts[i - 1].latLng, pts[i].latLng) / dt);
+    out.add((dist: haversineM(pts[i - 1].latLng, pts[i].latLng), secs: dt));
   }
   return out;
 }
 
 /// GPS 路径速度统计。
 class PathSpeedStats {
-  /// 平均速度（m/s）：总路程 / 起终点时间差，暂停时间计入首尾差。
+  /// 平均速度（m/s）：总路程 / 起终点时间差。起终点取第一个/最后一个有效段
+  /// 的端点，自动排除假首点（首点时间为行程开始日期的历史异常）；暂停时间计入。
   final double? avgMps;
 
-  /// 最高瞬时速度（m/s）：相邻实际数据点最大，跳过超长间隔；无有效段为 null。
+  /// 最高瞬时速度（m/s）：相邻有效段中距离/时长最大者；无有效段为 null。
   final double? maxMps;
 
   const PathSpeedStats(this.avgMps, this.maxMps);
@@ -327,15 +329,24 @@ class PathSpeedStats {
 
 PathSpeedStats pathSpeedStats(List<TrackPoint> pts) {
   final meters = pathLengthM([for (final p in pts) p.latLng]);
+  DateTime? start;
+  for (var i = 1; i < pts.length; i++) {
+    final t0 = pts[i - 1].time;
+    final t1 = pts[i].time;
+    if (t0 == null || t1 == null) continue;
+    final dt = t1.difference(t0).inSeconds;
+    if (dt <= 0 || dt > maxSpeedGapSec) continue;
+    start ??= t0;
+  }
   double? avg;
-  final first = pts.isEmpty ? null : pts.first.time;
-  final last = pts.isEmpty ? null : pts.last.time;
-  if (first != null && last != null) {
-    final dt = last.difference(first).inSeconds;
+  final end = pts.isEmpty ? null : pts.last.time;
+  if (start != null && end != null) {
+    final dt = end.difference(start).inSeconds;
     if (dt > 0) avg = meters / dt;
   }
   double? max;
-  for (final v in _segmentSpeeds(pts)) {
+  for (final seg in _validSegments(pts)) {
+    final v = seg.dist / seg.secs;
     if (max == null || v > max) max = v;
   }
   return PathSpeedStats(avg, max);
