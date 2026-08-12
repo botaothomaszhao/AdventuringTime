@@ -89,6 +89,36 @@ void main() {
     expect(f.readAsStringSync(), contains('版本2'));
   });
 
+  test('内容未变化时不产生新备份', () async {
+    await repo.saveLife(GpxFile(waypoints: [
+      Waypoint(
+        id: 'w1',
+        name: '家',
+        latLng: const LatLng(1, 1),
+        createdAt: DateTime.utc(2020, 1, 1),
+        updatedAt: DateTime.utc(2020, 1, 1),
+      )
+    ]));
+    await repo.backupAll();
+    expect(await repo.listBackups(), hasLength(1));
+
+    await repo.backupAll();
+    expect(await repo.listBackups(), hasLength(1), reason: '无变化应跳过备份');
+
+    await Future<void>.delayed(const Duration(seconds: 1));
+    await repo.saveLife(GpxFile(waypoints: [
+      Waypoint(
+        id: 'w1',
+        name: '家（改名）',
+        latLng: const LatLng(1, 1),
+        createdAt: DateTime.utc(2020, 1, 1),
+        updatedAt: DateTime.utc(2020, 1, 1),
+      )
+    ]));
+    await repo.backupAll();
+    expect(await repo.listBackups(), hasLength(2), reason: '有变化应新增备份');
+  });
+
   test('整包备份后可恢复被删行程', () async {
     final meta = Trip(
       id: 't1',

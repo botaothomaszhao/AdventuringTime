@@ -43,11 +43,13 @@ class _Selected {
   final String label;
   final String? detail;
   final DateTime? time;
+  final TimePrecision? precision;
   final List<Widget> Function() actions;
   const _Selected({
     required this.label,
     this.detail,
     this.time,
+    this.precision,
     required this.actions,
   });
 }
@@ -361,6 +363,7 @@ class _MapPageState extends ConsumerState<MapPage>
         label: w.name.isEmpty ? '（未命名）' : w.name,
         detail: w.desc,
         time: w.time,
+        precision: w.timePrecision,
         actions: () {
           return [
             if (w.isEvent)
@@ -1756,7 +1759,7 @@ class _SelectedCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Text(
-                  fmtDate(sel.time),
+                  formatTime(sel.time!, sel.precision),
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                 ),
               ),

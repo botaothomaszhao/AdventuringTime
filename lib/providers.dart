@@ -110,7 +110,17 @@ class PersonData {
   PersonData copy() => PersonData(
         person: person,
         life: GpxFile(waypoints: [...life.waypoints], paths: [...life.paths]),
-        trips: [for (final t in trips) TripBundle(meta: t.meta, gpx: GpxFile(waypoints: [...t.gpx.waypoints], paths: [...t.gpx.paths]))],
+        trips: [
+          for (final t in trips)
+            TripBundle(
+              meta: t.meta,
+              gpx: GpxFile(
+                waypoints: [...t.gpx.waypoints],
+                paths: [...t.gpx.paths],
+                orderIds: [...t.gpx.orderIds],
+              ),
+            ),
+        ],
       );
 }
 
@@ -224,7 +234,9 @@ class PersonDataNotifier extends FamilyAsyncNotifier<PersonData, String> {
 
   Future<void> deleteTripWaypoint(String tripId, String wptId) async {
     final next = d.copy();
-    _tripGpx(next, tripId).waypoints.removeWhere((x) => x.id == wptId);
+    final g = _tripGpx(next, tripId);
+    g.waypoints.removeWhere((x) => x.id == wptId);
+    g.orderIds.remove(wptId);
     await _commit(next);
   }
 
@@ -242,7 +254,62 @@ class PersonDataNotifier extends FamilyAsyncNotifier<PersonData, String> {
 
   Future<void> deleteTripPath(String tripId, String pathId) async {
     final next = d.copy();
-    _tripGpx(next, tripId).paths.removeWhere((x) => x.id == pathId);
+    final g = _tripGpx(next, tripId);
+    g.paths.removeWhere((x) => x.id == pathId);
+    g.orderIds.remove(pathId);
+    await _commit(next);
+  }
+
+  /// 行程内路径/地点按天手动调序：itemId 上移/下移一位（同一天内）。
+  /// orderIds 为空或未覆盖全部项时先按时间生成基准顺序，再交换相邻同天项。
+  Future<void> reorderTripItem(String tripId, String itemId, bool up) async {
+    final next = d.copy();
+    final g = _tripGpx(next, tripId);
+    final all = <Object>[...g.paths, ...g.waypoints];
+    String idOf(Object o) => o is PathData ? o.id : (o as Waypoint).id;
+    DateTime sortTime(Object o) =>
+        (o is PathData ? o.points.firstOrNull?.time : (o as Waypoint).time) ??
+        (o is PathData ? o.createdAt : (o as Waypoint).createdAt);
+    String dayKey(Object o) {
+      final t = o is PathData ? o.points.firstOrNull?.time : (o as Waypoint).time;
+      if (t == null) return '未标日期';
+      return '${t.year}-${t.month}-${t.day}';
+    }
+
+    var ids = g.orderIds;
+    final covered = ids.isNotEmpty &&
+        ids.length == all.length &&
+        all.every((o) => ids.contains(idOf(o)));
+    if (!covered) {
+      final sorted = [...all]..sort((a, b) => sortTime(a).compareTo(sortTime(b)));
+      ids = [for (final o in sorted) idOf(o)];
+    }
+    final i = ids.indexOf(itemId);
+    if (i < 0) return;
+    final keyOf = {for (final o in all) idOf(o): dayKey(o)};
+    final k = keyOf[itemId]!;
+    void swap(int j) {
+      final tmp = ids[i];
+      ids[i] = ids[j];
+      ids[j] = tmp;
+    }
+
+    if (up) {
+      for (var j = i - 1; j >= 0; j--) {
+        if (keyOf[ids[j]] == k) {
+          swap(j);
+          break;
+        }
+      }
+    } else {
+      for (var j = i + 1; j < ids.length; j++) {
+        if (keyOf[ids[j]] == k) {
+          swap(j);
+          break;
+        }
+      }
+    }
+    g.orderIds = ids;
     await _commit(next);
   }
 
@@ -264,6 +331,7 @@ class PersonDataNotifier extends FamilyAsyncNotifier<PersonData, String> {
       final idx = t.gpx.waypoints.indexWhere((x) => x.id == eventId);
       if (idx >= 0) {
         final w = t.gpx.waypoints.removeAt(idx);
+        t.gpx.orderIds.remove(eventId);
         next.life.waypoints.add(w);
         break;
       }

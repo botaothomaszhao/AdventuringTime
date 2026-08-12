@@ -109,6 +109,7 @@ Future<WaypointForm?> showWaypointDialog(
   String? defaultName,
   String? tripId,
   DateTime? presetTime,
+  VoidCallback? onDelete,
 }) {
   return showDialog<WaypointForm>(
     context: context,
@@ -119,6 +120,7 @@ Future<WaypointForm?> showWaypointDialog(
       defaultName: defaultName,
       tripId: tripId,
       presetTime: presetTime,
+      onDelete: onDelete,
     ),
   );
 }
@@ -130,6 +132,7 @@ class _WaypointDialog extends ConsumerStatefulWidget {
   final String? defaultName;
   final String? tripId; // 新建时预选的所属行程；编辑时当前所属行程
   final DateTime? presetTime; // 新建时预填的到达时间
+  final VoidCallback? onDelete; // 删除当前地点（编辑时提供）
 
   const _WaypointDialog({
     required this.personId,
@@ -138,6 +141,7 @@ class _WaypointDialog extends ConsumerStatefulWidget {
     this.defaultName,
     this.tripId,
     this.presetTime,
+    this.onDelete,
   });
 
   @override
@@ -331,6 +335,12 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
         ),
       ),
       actions: [
+        if (widget.onDelete != null)
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+            onPressed: widget.onDelete,
+            child: const Text('删除'),
+          ),
         TextButton(key: const ValueKey('dialog-cancel'), onPressed: () => Navigator.pop(context), child: const Text('取消')),
         FilledButton(key: const ValueKey('dialog-save'), onPressed: _submit, child: const Text('保存')),
       ],
@@ -474,7 +484,8 @@ class PathForm {
     p.name = name;
     p.desc = desc;
     p.mediaIds = mediaIds;
-    if (time != null && p.points.isNotEmpty) {
+    // GPS 轨迹时间取自记录开始时间，不可改；仅手绘路径写首点时间
+    if (time != null && !p.isGps && p.points.isNotEmpty) {
       p.points[0] = TrackPoint(p.points[0].latLng, time);
     }
   }
@@ -509,6 +520,7 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
   List<String> _mediaIds = [];
   DateTime? _time;
   TimePrecision? _precision;
+  late final bool _isGps;
 
   @override
   void initState() {
@@ -518,6 +530,7 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
     _mediaIds = widget.existing == null ? [] : [...widget.existing!.mediaIds];
     _time = widget.existing?.points.firstOrNull?.time;
     _precision = null;
+    _isGps = widget.existing?.isGps ?? false;
   }
 
   @override
@@ -562,28 +575,37 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
               decoration: const InputDecoration(labelText: '说明', border: OutlineInputBorder()),
               maxLines: 2,
             ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _pickTime,
-                  icon: const Icon(Icons.event),
-                  label: Text(_time == null ? '设置时间（可选）' : _fmtTime()),
+          if (!_isGps) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _pickTime,
+                    icon: const Icon(Icons.event),
+                    label: Text(_time == null ? '设置时间（可选）' : _fmtTime()),
+                  ),
                 ),
+                const SizedBox(width: 8),
+                DropdownButton<TimePrecision>(
+                  value: _precision ?? TimePrecision.day,
+                  onChanged: (v) => setState(() => _precision = v),
+                  items: const [
+                    DropdownMenuItem(value: TimePrecision.year, child: Text('年')),
+                    DropdownMenuItem(value: TimePrecision.month, child: Text('月')),
+                    DropdownMenuItem(value: TimePrecision.day, child: Text('日')),
+                  ],
+                ),
+              ],
+            ),
+          ] else
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                _time == null ? 'GPS 轨迹' : 'GPS 轨迹 · ${_fmtTime()}',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
-              const SizedBox(width: 8),
-              DropdownButton<TimePrecision>(
-                value: _precision ?? TimePrecision.day,
-                onChanged: (v) => setState(() => _precision = v),
-                items: const [
-                  DropdownMenuItem(value: TimePrecision.year, child: Text('年')),
-                  DropdownMenuItem(value: TimePrecision.month, child: Text('月')),
-                  DropdownMenuItem(value: TimePrecision.day, child: Text('日')),
-                ],
-              ),
-            ],
-          ),
+            ),
           const SizedBox(height: 8),
           Text(
             '照片',

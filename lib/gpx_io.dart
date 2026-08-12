@@ -62,7 +62,7 @@ Waypoint _parseWaypoint(XmlElement e) {
     name: _text(e, 'name') ?? '',
     desc: _text(e, 'desc'),
     latLng: LatLng(lat, lon),
-    time: time == null ? null : DateTime.tryParse(time),
+    time: time == null ? null : DateTime.tryParse(time)?.toLocal(),
     timePrecision: precision,
     isEvent: isEvent,
     fromName: _ext(e, 'fromName'),
@@ -70,8 +70,8 @@ Waypoint _parseWaypoint(XmlElement e) {
     mediaIds: list == null
         ? (single == null ? const [] : [single])
         : list.split(',').where((s) => s.isNotEmpty).toList(),
-    createdAt: createdAt == null ? DateTime.now() : DateTime.tryParse(createdAt) ?? DateTime.now(),
-    updatedAt: updatedAt == null ? DateTime.now() : DateTime.tryParse(updatedAt) ?? DateTime.now(),
+    createdAt: createdAt == null ? DateTime.now() : DateTime.tryParse(createdAt)?.toLocal() ?? DateTime.now(),
+    updatedAt: updatedAt == null ? DateTime.now() : DateTime.tryParse(updatedAt)?.toLocal() ?? DateTime.now(),
   );
 }
 
@@ -90,7 +90,7 @@ PathData _parsePath(XmlElement e, {required bool isGps}) {
     final lon = double.tryParse(pt.getAttribute('lon') ?? '');
     if (lat == null || lon == null) continue;
     final t = _text(pt, 'time');
-    points.add(TrackPoint(LatLng(lat, lon), t == null ? null : DateTime.tryParse(t)));
+    points.add(TrackPoint(LatLng(lat, lon), t == null ? null : DateTime.tryParse(t)?.toLocal()));
   }
   final createdAt = _ext(e, 'createdAt');
   final updatedAt = _ext(e, 'updatedAt');
@@ -111,8 +111,8 @@ PathData _parsePath(XmlElement e, {required bool isGps}) {
     endEventId: _ext(e, 'endEventId'),
     endLat: _num(_ext(e, 'endLat')),
     endLon: _num(_ext(e, 'endLon')),
-    createdAt: createdAt == null ? DateTime.now() : DateTime.tryParse(createdAt) ?? DateTime.now(),
-    updatedAt: updatedAt == null ? DateTime.now() : DateTime.tryParse(updatedAt) ?? DateTime.now(),
+    createdAt: createdAt == null ? DateTime.now() : DateTime.tryParse(createdAt)?.toLocal() ?? DateTime.now(),
+    updatedAt: updatedAt == null ? DateTime.now() : DateTime.tryParse(updatedAt)?.toLocal() ?? DateTime.now(),
   );
 }
 
@@ -124,7 +124,7 @@ Trip? _parseMetadataTrip(XmlElement metadata) {
   if (trip == null) return null;
   DateTime? p(String n) {
     final v = _text(trip, n);
-    return v == null || v.isEmpty ? null : DateTime.tryParse(v);
+    return v == null || v.isEmpty ? null : DateTime.tryParse(v)?.toLocal();
   }
 
   String? s(String n) => _text(trip, n);
@@ -152,6 +152,7 @@ GpxFile parseGpx(String content) {
   final waypoints = <Waypoint>[];
   final paths = <PathData>[];
   Trip? meta;
+  var orderIds = <String>[];
   for (final e in root.childElements) {
     switch (e.name.local) {
       case 'wpt':
@@ -162,9 +163,14 @@ GpxFile parseGpx(String content) {
         paths.add(_parsePath(e, isGps: false));
       case 'metadata':
         meta = _parseMetadataTrip(e);
+      case 'extensions':
+        final o = e.childElements.where((c) => c.name.local == 'orderIds').firstOrNull;
+        if (o != null) {
+          orderIds = o.innerText.split(',').where((s) => s.isNotEmpty).toList();
+        }
     }
   }
-  return GpxFile(waypoints: waypoints, paths: paths, metadataTrip: meta);
+  return GpxFile(waypoints: waypoints, paths: paths, metadataTrip: meta, orderIds: orderIds);
 }
 
 String _wptXml(Waypoint w) {
@@ -263,6 +269,11 @@ String toGpx(GpxFile gpx, {Trip? trip}) {
   b.write(
       '<gpx version="1.1" creator="AdventuringTime" xmlns="http://www.topografix.com/GPX/1/1" xmlns:atrip="$_atripNs">\n');
   if (trip != null) b.write(_metadataXml(trip));
+  if (gpx.orderIds.isNotEmpty) {
+    b.write('  <extensions>\n');
+    b.write('    <atrip:orderIds>${gpx.orderIds.join(',')}</atrip:orderIds>\n');
+    b.write('  </extensions>\n');
+  }
   for (final w in gpx.waypoints) {
     b.write(_wptXml(w));
   }

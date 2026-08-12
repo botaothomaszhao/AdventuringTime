@@ -203,16 +203,41 @@ class TripDetailPage extends ConsumerWidget {
                   ListTile(
                     dense: true,
                     leading: Icon(
-                      item is PathData ? Icons.timeline : Icons.location_on,
+                      item.data is PathData ? Icons.timeline : Icons.location_on,
                       size: 20,
                     ),
-                    title: Text(item is PathData ? item.name : (item as Waypoint).name),
-                    subtitle: Text(item is PathData
-                        ? (item.isGps ? 'GPS 轨迹' : '手绘路径')
-                        : ((item as Waypoint).desc ?? '')),
+                    title: Text(
+                      item.data is PathData
+                          ? (item.data as PathData).name
+                          : (item.data as Waypoint).name,
+                    ),
+                    subtitle: Text(item.data is PathData
+                        ? ((item.data as PathData).isGps ? 'GPS 轨迹' : '手绘路径')
+                        : ((item.data as Waypoint).desc ?? '')),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.arrow_upward, size: 18),
+                          tooltip: '上移',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: item.canUp
+                              ? () => _moveItem(ref, item.data, true)
+                              : null,
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.arrow_downward, size: 18),
+                          tooltip: '下移',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: item.canDown
+                              ? () => _moveItem(ref, item.data, false)
+                              : null,
+                        ),
+                      ],
+                    ),
                     onTap: () async {
-                      if (item is PathData) {
-                        final p = item;
+                      if (item.data is PathData) {
+                        final p = item.data as PathData;
                         final before = List<String>.of(p.mediaIds);
                         final form = await showPathDialog(
                           context,
@@ -226,13 +251,14 @@ class TripDetailPage extends ConsumerWidget {
                         await notifier.saveTripPath(tripId, p);
                         await cleanupRemovedMedia(ref, personId, before, p.mediaIds);
                       } else {
-                        final w = item as Waypoint;
+                        final w = item.data as Waypoint;
                         final before = List<String>.of(w.mediaIds);
                         final form = await showWaypointDialog(
                           context,
                           personId: personId,
                           existing: w,
                           tripId: tripId,
+                          onDelete: () => _deleteWaypointFromPage(context, ref, w, tripId),
                         );
                         if (form == null) return;
                         form.applyTo(w);
@@ -272,20 +298,46 @@ class TripDetailPage extends ConsumerWidget {
     );
   }
 
-  List<({String date, List<Object> items})> _groupByDate(TripBundle trip) {
+  /// 按日期分组的路径与地点。组内默认按时间排序；orderIds 覆盖该组全部项时按自定义顺序。
+  List<({String date, List<({Object data, bool canUp, bool canDown})> items})> _groupByDate(
+      TripBundle trip) {
     final map = <String, List<Object>>{};
     String keyFor(DateTime? t) {
       if (t == null) return '未标日期';
       return '${t.year}年${t.month}月${t.day}日';
     }
 
-    for (final p in trip.gpx.paths) {
-      map.putIfAbsent(keyFor(p.points.firstOrNull?.time ?? p.createdAt), () => []).add(p);
+    String idOf(Object o) => o is PathData ? o.id : (o as Waypoint).id;
+    DateTime? timeOf(Object o) =>
+        o is PathData ? o.points.firstOrNull?.time : (o as Waypoint).time;
+    DateTime sortTime(Object o) =>
+        timeOf(o) ?? (o is PathData ? o.createdAt : (o as Waypoint).createdAt);
+
+    final g = trip.gpx;
+    for (final p in g.paths) {
+      map.putIfAbsent(keyFor(timeOf(p)), () => []).add(p);
     }
-    for (final w in trip.gpx.waypoints) {
-      map.putIfAbsent(keyFor(w.time ?? w.createdAt), () => []).add(w);
+    for (final w in g.waypoints) {
+      map.putIfAbsent(keyFor(timeOf(w)), () => []).add(w);
     }
-    final out = map.entries.map((e) => (date: e.key, items: e.value)).toList();
+    final ids = g.orderIds;
+    final out = <({String date, List<({Object data, bool canUp, bool canDown})> items})>[];
+    for (final e in map.entries) {
+      final items = e.value;
+      final covered = ids.isNotEmpty && items.every((o) => ids.contains(idOf(o)));
+      if (covered) {
+        items.sort((a, b) => ids.indexOf(idOf(a)).compareTo(ids.indexOf(idOf(b))));
+      } else {
+        items.sort((a, b) => sortTime(a).compareTo(sortTime(b)));
+      }
+      out.add((
+        date: e.key,
+        items: [
+          for (var i = 0; i < items.length; i++)
+            (data: items[i], canUp: i > 0, canDown: i < items.length - 1),
+        ],
+      ));
+    }
     out.sort((a, b) {
       bool isDate(String s) => s.contains('年');
       if (isDate(a.date) && isDate(b.date)) {
@@ -294,6 +346,37 @@ class TripDetailPage extends ConsumerWidget {
       return a.date == '未标日期' ? 1 : (b.date == '未标日期' ? -1 : a.date.compareTo(b.date));
     });
     return out;
+  }
+
+  /// 当天内上移/下移一个路径或地点（跨类型混排，参照自定义顺序）。
+  Future<void> _moveItem(WidgetRef ref, Object item, bool up) async {
+    final id = item is PathData ? item.id : (item as Waypoint).id;
+    await ref.read(personDataProvider(personId).notifier).reorderTripItem(tripId, id, up);
+  }
+
+  /// 地点编辑对话框内的删除：确认后删除并关闭对话框。
+  Future<void> _deleteWaypointFromPage(
+    BuildContext context,
+    WidgetRef ref,
+    Waypoint w,
+    String tripId,
+  ) async {
+    final ok = await confirmDialog(context, '删除地点', '确定删除该地点？');
+    if (!ok) return;
+    await ref.read(personDataProvider(personId).notifier).deleteTripWaypoint(tripId, w.id);
+    final nd = ref.read(personDataProvider(personId)).valueOrNull;
+    if (nd != null) {
+      for (final id in w.mediaIds) {
+        await deleteMediaIfUnused(
+          ref,
+          personId,
+          id,
+          waypoints: _allWaypoints(nd),
+          paths: _allPaths(nd),
+        );
+      }
+    }
+    if (context.mounted) Navigator.pop(context);
   }
 
   /// 路径编辑对话框内的删除：确认后删除并关闭对话框。

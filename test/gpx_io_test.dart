@@ -29,14 +29,14 @@ void main() {
       expect(p.desc, '2008年全家搬到上海');
       expect(p.latLng.latitude, closeTo(31.23, 1e-9));
       expect(p.latLng.longitude, closeTo(121.47, 1e-9));
-      expect(p.time, DateTime.utc(2008, 1, 1));
+      expect(p.time, DateTime.utc(2008, 1, 1).toLocal());
       expect(p.timePrecision, TimePrecision.year);
       expect(p.isEvent, true);
       expect(p.fromName, '武汉');
       expect(p.fromLatLng!.latitude, closeTo(30.59, 1e-9));
       expect(p.mediaId, 'media1');
       expect(p.mediaIds, ['media1', 'media2']);
-      expect(p.createdAt, DateTime.utc(2020, 1, 1));
+      expect(p.createdAt, DateTime.utc(2020, 1, 1).toLocal());
     });
 
     test('普通地点与 trk/rte 往返一致', () {
@@ -81,7 +81,7 @@ void main() {
       final t = parsed.tracks.first;
       expect(t.id, 'trk1');
       expect(t.points, hasLength(2));
-      expect(t.points.first.time, DateTime.utc(2023, 5, 1, 8, 0));
+      expect(t.points.first.time, DateTime.utc(2023, 5, 1, 8, 0).toLocal());
       expect(t.startEventId, 'ev1');
       expect(t.startLat, closeTo(24.9, 1e-9));
       expect(t.mediaId, 'm1');
@@ -109,9 +109,9 @@ void main() {
       expect(m.name, '新疆8日游');
       expect(m.description, '北疆环线');
       expect(m.mediaIds, ['c1', 'c2']);
-      expect(m.startDate, DateTime.utc(2024, 7, 1));
+      expect(m.startDate, DateTime.utc(2024, 7, 1).toLocal());
       expect(m.endEventId, 'ev2');
-      expect(m.updatedAt, DateTime.utc(2024, 6, 1));
+      expect(m.updatedAt, DateTime.utc(2024, 6, 1).toLocal());
     });
 
     test('外部 GPX（无扩展字段）可导入且不报错', () {
@@ -135,6 +135,53 @@ void main() {
       expect(parsed.waypoints.single.timePrecision, isNull);
       expect(parsed.tracks.single.points, hasLength(2));
       expect(parsed.tracks.single.mediaId, isNull);
+    });
+
+    test('orderIds 往返一致', () {
+      final gpx = GpxFile(
+        paths: [
+          PathData(
+            id: 'p1',
+            name: 'p1',
+            isGps: true,
+            points: [TrackPoint(const LatLng(0, 0))],
+            createdAt: DateTime.utc(2024, 1, 1),
+            updatedAt: DateTime.utc(2024, 1, 1),
+          ),
+        ],
+        waypoints: [
+          Waypoint(
+            id: 'w1',
+            name: 'w1',
+            latLng: const LatLng(1, 1),
+            createdAt: DateTime.utc(2024, 1, 1),
+            updatedAt: DateTime.utc(2024, 1, 1),
+          ),
+        ],
+        orderIds: ['w1', 'p1'],
+      );
+      final parsed = parseGpx(toGpx(gpx));
+      expect(parsed.orderIds, ['w1', 'p1']);
+      expect(toGpx(GpxFile()), isNot(contains('orderIds')));
+    });
+
+    test('时区：本地时间写读往返日期不变（防止 UTC 显示前一天）', () {
+      final local = DateTime(2024, 3, 5, 0, 30);
+      final w = Waypoint(
+        id: 'w',
+        name: 'w',
+        latLng: const LatLng(0, 0),
+        time: local,
+        createdAt: local,
+        updatedAt: local,
+      );
+      final parsed = parseGpx(toGpx(GpxFile(waypoints: [w])));
+      final t = parsed.waypoints.single.time!;
+      expect(t.isUtc, false);
+      expect(t.year, 2024);
+      expect(t.month, 3);
+      expect(t.day, 5);
+      expect(t.hour, 0);
     });
   });
 }

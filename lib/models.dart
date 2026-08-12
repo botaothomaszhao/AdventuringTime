@@ -222,11 +222,14 @@ class GpxFile {
   final List<Waypoint> waypoints;
   final List<PathData> paths; // trk + rte 统一存放（isGps 区分）
   Trip? metadataTrip; // 从 metadata 扩展读出的行程元数据
+  /// 显示顺序（路径/地点 id 混合，仅行程内）。空 = 按时间排序。
+  List<String> orderIds;
 
   GpxFile({
     List<Waypoint>? waypoints,
     List<PathData>? paths,
     this.metadataTrip,
+    this.orderIds = const [],
   })  : waypoints = waypoints ?? [],
         paths = paths ?? [];
 

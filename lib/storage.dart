@@ -180,20 +180,53 @@ class PersonRepository {
 
   /// 全量备份：仅复制 profile/life/各行程（媒体不进备份，始终留在共用媒体池），
   /// 存到 `backups/<ts>[-<suffix>]/`（同步前、覆盖导入前与手动触发时调用）。
+  /// 若与最近一次备份的文件集合与内容完全一致则跳过，不产生新备份。
   Future<void> backupAll({String? suffix}) async {
     final name = suffix == null ? _timestamp() : '${_timestamp()}-$suffix';
     final dest = Directory(p.join(root.path, 'backups', name));
-    await dest.create(recursive: true);
-    Future<void> put(String name, File src) async {
-      if (await src.exists()) await src.copy(p.join(dest.path, name));
-    }
 
-    await put('profile.json', File(p.join(root.path, 'profile.json')));
-    await put('life.gpx', File(p.join(root.path, 'life.gpx')));
-    for (final meta in await listTrips()) {
-      await put('trip_${meta.id}.json', File(p.join(tripDir(meta.id).path, 'trip.json')));
-      await put('trip_${meta.id}.gpx', File(p.join(tripDir(meta.id).path, 'trip.gpx')));
+    final candidates = <(String, File)>[
+      ('profile.json', File(p.join(root.path, 'profile.json'))),
+      ('life.gpx', File(p.join(root.path, 'life.gpx'))),
+      for (final meta in await listTrips()) ...[
+        ('trip_${meta.id}.json', File(p.join(tripDir(meta.id).path, 'trip.json'))),
+        ('trip_${meta.id}.gpx', File(p.join(tripDir(meta.id).path, 'trip.gpx'))),
+      ],
+    ];
+    final units = [for (final (n, f) in candidates) if (await f.exists()) (n, f)];
+
+    if (await _sameAsLastBackup(units)) return;
+
+    await dest.create(recursive: true);
+    for (final (n, f) in units) {
+      await f.copy(p.join(dest.path, n));
     }
+  }
+
+  /// 与最近一次备份比对：文件集合与字节内容完全一致返回 true。
+  Future<bool> _sameAsLastBackup(List<(String, File)> units) async {
+    final backups = await listBackups();
+    if (backups.isEmpty) return false;
+    final lastDir = Directory(p.join(root.path, 'backups', backups.first));
+    final lastNames = (await lastDir.list().toList())
+        .whereType<File>()
+        .map((e) => p.basename(e.path))
+        .toSet();
+    if (lastNames.length != units.length) return false;
+    for (final (n, f) in units) {
+      final last = File(p.join(lastDir.path, n));
+      if (!await last.exists()) return false;
+      if (await last.length() != await f.length()) return false;
+      if (!_bytesEqual(await f.readAsBytes(), await last.readAsBytes())) return false;
+    }
+    return true;
+  }
+
+  static bool _bytesEqual(List<int> a, List<int> b) {
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   /// 列出备份时间戳，用于"从备份恢复"。
