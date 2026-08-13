@@ -20,7 +20,7 @@
 正式安装包发布在 GitHub **Release** 页：[https://github.com/botaothomaszhao/AdventuringTime/releases](https://github.com/botaothomaszhao/AdventuringTime/releases)
 
 - **Android**：下载最新版本的 `.apk` 安装包，传到手机后手动安装（首次需允许「安装未知应用」；签名变化时需先卸载旧版）。
-- **Windows**：下载最新版本的 `setup` 安装包（`.exe`），双击运行按向导完成安装，桌面/开始菜单会出现应用图标。
+- **Windows**：下载 `adventuring_time_setup_<版本>.exe`，双击运行按向导完成安装（可选创建桌面快捷方式），开始菜单会出现应用图标。
 
 各版本信息与变更记录见 Release 说明。
 
