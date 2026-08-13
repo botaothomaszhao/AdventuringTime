@@ -77,12 +77,22 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   Future<void> _startServer(int port) async {
     setState(() => _serverBusy = true);
     try {
-      final s = SyncServer(port);
+      final s = SyncServer(port, onChange: _onSyncDataChanged);
       await s.start();
       _server = s;
       setState(() {});
     } finally {
       setState(() => _serverBusy = false);
+    }
+  }
+
+  /// 服务器收到推送并写盘后：使人物/数据缓存失效，回到主界面即显示新数据。
+  void _onSyncDataChanged(String? personId) {
+    ref.invalidate(peopleProvider);
+    if (personId != null) {
+      ref.invalidate(personDataProvider(personId));
+      ref.invalidate(mediaListProvider(personId));
+      ref.invalidate(referencedMediaIdsProvider(personId));
     }
   }
 
@@ -121,9 +131,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         pushed += s.pushed;
         deleted += s.deleted;
       }
+      // 使受影响人物的数据与媒体缓存全部失效（含非当前人物），回到主界面即时生效。
       ref.invalidate(peopleProvider);
-      final currentId = ref.read(currentPersonIdProvider);
-      if (currentId != null) ref.invalidate(personDataProvider(currentId));
+      for (final pid in result.keys) {
+        ref.invalidate(personDataProvider(pid));
+        ref.invalidate(mediaListProvider(pid));
+        ref.invalidate(referencedMediaIdsProvider(pid));
+      }
       if (!mounted) return;
       setState(() => _syncStatus = '同步完成：拉取 $pulled / 推送 $pushed / 删除 $deleted');
     } catch (e) {

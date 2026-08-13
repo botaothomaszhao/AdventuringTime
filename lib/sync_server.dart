@@ -10,11 +10,13 @@ import 'version.dart';
 
 /// Windows 端内置同步服务器（§7.3）：只做文件读写，不做合并决策。
 /// 默认端口 8024，绑定任意网卡。
+/// [onChange] 在收到推送并落盘后回调（personId 为受影响人物），供 UI 失效缓存。
 class SyncServer {
   final int port;
+  final void Function(String? personId)? onChange;
   HttpServer? _server;
 
-  SyncServer(this.port);
+  SyncServer(this.port, {this.onChange});
 
   bool get running => _server != null;
 
@@ -113,6 +115,7 @@ class SyncServer {
           } else {
             await writeUnit(repo, unit, bytes);
           }
+          onChange?.call(segs[2]);
           return _json(res, 200, {'ok': true});
         }
         return _json(res, 405, {'error': 'method not allowed'});

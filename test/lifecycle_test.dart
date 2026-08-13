@@ -275,6 +275,87 @@ void main() {
   });
 
   group('统计', () {
+    test('estimatedTripMeters 含起点事件到首节点、末节点到终点事件的路段', () {
+      final start = ev('s', DateTime.utc(2000, 1, 1), const LatLng(0, 0));
+      final end = ev('e', DateTime.utc(2010, 1, 1), const LatLng(5, 0));
+      final t = TripBundle(
+        meta: Trip(
+          id: 't',
+          name: 't',
+          startDate: DateTime.utc(2005, 1, 1),
+          startEventId: start.id,
+          endEventId: end.id,
+          createdAt: DateTime.utc(2005, 1, 1),
+          updatedAt: DateTime.utc(2005, 1, 1),
+        ),
+        gpx: GpxFile(
+          waypoints: [
+            Waypoint(
+              id: 'w1',
+              name: 'w1',
+              latLng: const LatLng(1, 0),
+              time: DateTime.utc(2005, 1, 2),
+              createdAt: DateTime.utc(2005, 1, 1),
+              updatedAt: DateTime.utc(2005, 1, 1),
+            ),
+          ],
+          paths: [
+            PathData(
+              id: 'p1',
+              name: 'p1',
+              isGps: false,
+              points: [
+                TrackPoint(const LatLng(2, 0), DateTime.utc(2005, 1, 3)),
+                TrackPoint(const LatLng(4, 0), DateTime.utc(2005, 1, 3)),
+              ],
+              createdAt: DateTime.utc(2005, 1, 1),
+              updatedAt: DateTime.utc(2005, 1, 1),
+            ),
+          ],
+        ),
+      );
+      // 起点(0,0)→w1(1,0)→p1首(2,0)、p1尾(4,0)→终点(5,0)；p1 内部(2,0)→(4,0)为路径本身不计
+      final expectM = haversineM(const LatLng(0, 0), const LatLng(1, 0)) +
+          haversineM(const LatLng(1, 0), const LatLng(2, 0)) +
+          haversineM(const LatLng(4, 0), const LatLng(5, 0));
+      expect(estimatedTripMeters(t, [start, end]), closeTo(expectM, 1e-6));
+    });
+
+    test('estimatedTripMeters 无起终点引用时仅节点间直线段', () {
+      final t = TripBundle(
+        meta: Trip(
+          id: 't',
+          name: 't',
+          startDate: DateTime.utc(2005, 1, 1),
+          createdAt: DateTime.utc(2005, 1, 1),
+          updatedAt: DateTime.utc(2005, 1, 1),
+        ),
+        gpx: GpxFile(
+          orderIds: ['w2', 'w1'],
+          waypoints: [
+            Waypoint(
+              id: 'w1',
+              name: 'w1',
+              latLng: const LatLng(1, 0),
+              time: DateTime.utc(2005, 1, 2),
+              createdAt: DateTime.utc(2005, 1, 1),
+              updatedAt: DateTime.utc(2005, 1, 1),
+            ),
+            Waypoint(
+              id: 'w2',
+              name: 'w2',
+              latLng: const LatLng(2, 0),
+              time: DateTime.utc(2005, 1, 1),
+              createdAt: DateTime.utc(2005, 1, 1),
+              updatedAt: DateTime.utc(2005, 1, 1),
+            ),
+          ],
+        ),
+      );
+      expect(estimatedTripMeters(t, []),
+          closeTo(haversineM(const LatLng(2, 0), const LatLng(1, 0)), 1e-6));
+    });
+
     test('tripStats 里程/天数/数量正确', () {
       final t = trip('t', DateTime.utc(2024, 7, 1), [
         PathData(

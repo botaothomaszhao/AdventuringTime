@@ -88,51 +88,13 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
     ));
   }
   for (final t in trips) {
-    final itemSegs = <LifeSeg>[];
-    final startWp = findWp(t.meta.startEventId);
-    final endWp = findWp(t.meta.endEventId);
-    // 行程内节点：路径（首/尾点）与地点；顺序优先 orderIds，否则按时间
-    final nodes = <_TripNode>[];
-    for (final p in t.gpx.paths) {
-      if (p.points.isEmpty) continue;
-      nodes.add(_TripNode(path: p));
-    }
-    for (final w in t.gpx.waypoints) {
-      nodes.add(_TripNode(wp: w));
-    }
-    final orderIds = t.gpx.orderIds;
-    final covered = orderIds.isNotEmpty && nodes.every((n) => orderIds.contains(n.id));
-    if (covered) {
-      nodes.sort((a, b) => orderIds.indexOf(a.id).compareTo(orderIds.indexOf(b.id)));
-    } else {
-      nodes.sort((a, b) => a.time.compareTo(b.time));
-    }
-    // 起点长期地点置于最前，相邻节点间连虚线；路径仅连首尾，不重复画路径
-    LatLng? prev = startWp?.latLng;
-    for (final n in nodes) {
-      final p = n.path;
-      if (p != null) {
-        if (prev != null) itemSegs.add(LifeSeg(prev, p.points.first.latLng, false, t.meta.id));
-        prev = p.points.last.latLng;
-      } else {
-        if (prev != null) itemSegs.add(LifeSeg(prev, n.wp!.latLng, false, t.meta.id));
-        prev = n.wp!.latLng;
-      }
-    }
-    // 最后连回终点长期地点
-    if (endWp != null && prev != null) {
-      itemSegs.add(LifeSeg(prev, endWp.latLng, false, t.meta.id));
-    }
-    final first = startWp?.latLng ??
-        (nodes.isEmpty ? null : (nodes.first.path?.points.first.latLng ?? nodes.first.wp!.latLng));
-    final last = endWp?.latLng ??
-        (nodes.isEmpty ? null : (nodes.last.path?.points.last.latLng ?? nodes.last.wp!.latLng));
+    final inner = _tripInner(t, findWp);
     items.add(_LifeItem(
       time: t.meta.startDate ?? t.meta.createdAt,
       created: t.meta.createdAt,
-      first: first,
-      last: last,
-      segs: itemSegs,
+      first: inner.first,
+      last: inner.last,
+      segs: inner.segs,
       tripId: t.meta.id,
     ));
   }
@@ -174,6 +136,50 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
   return LifePathResult(segs, recorded, estimated);
 }
 
+/// 行程内部节点：路径（首/尾点）与地点；顺序优先 orderIds，否则按时间。
+/// 起点长期地点置于最前，相邻节点间连虚线；路径仅连首尾，不重复画路径；最后连回终点。
+/// 返回连接段序列与行程首末点（供轨迹线相邻连接）。
+({List<LifeSeg> segs, LatLng? first, LatLng? last}) _tripInner(
+    TripBundle t, Waypoint? Function(String?) findWp) {
+  final startWp = findWp(t.meta.startEventId);
+  final endWp = findWp(t.meta.endEventId);
+  final nodes = <_TripNode>[];
+  for (final p in t.gpx.paths) {
+    if (p.points.isEmpty) continue;
+    nodes.add(_TripNode(path: p));
+  }
+  for (final w in t.gpx.waypoints) {
+    nodes.add(_TripNode(wp: w));
+  }
+  final orderIds = t.gpx.orderIds;
+  final covered = orderIds.isNotEmpty && nodes.every((n) => orderIds.contains(n.id));
+  if (covered) {
+    nodes.sort((a, b) => orderIds.indexOf(a.id).compareTo(orderIds.indexOf(b.id)));
+  } else {
+    nodes.sort((a, b) => a.time.compareTo(b.time));
+  }
+  final segs = <LifeSeg>[];
+  LatLng? prev = startWp?.latLng;
+  for (final n in nodes) {
+    final p = n.path;
+    if (p != null) {
+      if (prev != null) segs.add(LifeSeg(prev, p.points.first.latLng, false, t.meta.id));
+      prev = p.points.last.latLng;
+    } else {
+      if (prev != null) segs.add(LifeSeg(prev, n.wp!.latLng, false, t.meta.id));
+      prev = n.wp!.latLng;
+    }
+  }
+  if (endWp != null && prev != null) {
+    segs.add(LifeSeg(prev, endWp.latLng, false, t.meta.id));
+  }
+  final first = startWp?.latLng ??
+      (nodes.isEmpty ? null : (nodes.first.path?.points.first.latLng ?? nodes.first.wp!.latLng));
+  final last = endWp?.latLng ??
+      (nodes.isEmpty ? null : (nodes.last.path?.points.last.latLng ?? nodes.last.wp!.latLng));
+  return (segs: segs, first: first, last: last);
+}
+
 class _TripNode {
   final DateTime time;
   final String id;
@@ -204,6 +210,27 @@ class _LifeItem {
     this.segs = const [],
     this.tripId,
   });
+}
+
+/// 单行程推算里程（米）：行程内部直线段总长——起点长期地点→各路径首尾/地点→
+/// 终点长期地点，与轨迹线行程部分一致；不含实际 GPS 轨迹自身长度。
+double estimatedTripMeters(TripBundle t, List<Waypoint> events) {
+  Waypoint? findWp(String? id) {
+    if (id == null) return null;
+    for (final e in events) {
+      if (e.id == id) return e;
+    }
+    for (final w in t.gpx.waypoints) {
+      if (w.id == id) return w;
+    }
+    return null;
+  }
+
+  var total = 0.0;
+  for (final s in _tripInner(t, findWp).segs) {
+    total += haversineM(s.from, s.to);
+  }
+  return total;
 }
 
 /// 行程统计。

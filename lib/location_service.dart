@@ -64,12 +64,9 @@ class LocationService {
   static Stream<RawPoint> rawPoints() =>
       _events.receiveBroadcastStream().map((e) => _decodePoints([e]).first);
 
-  /// 实时位置流（仅供蓝点）：会话期间前台服务每次定位都推送，记录/暂停均实时。
-  static Stream<LatLng> positions() =>
-      _posEvents.receiveBroadcastStream().map((e) {
-        final m = e as Map;
-        return LatLng((m['lat'] as num).toDouble(), (m['lon'] as num).toDouble());
-      });
+  /// 实时位置流（仅供蓝点）：会话期间前台服务每次定位都推送（约 1s），含定位时间。
+  static Stream<RawPoint> positions() =>
+      _posEvents.receiveBroadcastStream().map((e) => _decodePoints([e]).first);
 
   static List<RawPoint> _decodePoints(Object? l) {
     if (l is! List) return [];

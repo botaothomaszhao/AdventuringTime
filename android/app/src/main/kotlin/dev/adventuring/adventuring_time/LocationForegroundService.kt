@@ -86,10 +86,14 @@ class LocationForegroundService : Service() {
             }
         }
 
-        private fun pushPosition(lat: Double, lon: Double) {
+        private fun pushPosition(loc: Location) {
             positionSink?.let {
                 try {
-                    it.success(mapOf("lat" to lat, "lon" to lon))
+                    it.success(mapOf(
+                        "lat" to loc.latitude,
+                        "lon" to loc.longitude,
+                        "time" to loc.time,
+                    ))
                 } catch (_: Throwable) {
                 }
             }
@@ -200,7 +204,7 @@ class LocationForegroundService : Service() {
                 "time" to loc.time,
             ))
             // 仅前台推实时位置给蓝点；后台不推（蓝点不可见）
-            if (mode == MODE_FOREGROUND) pushPosition(loc.latitude, loc.longitude)
+            if (mode == MODE_FOREGROUND) pushPosition(loc)
         }
 
         @Deprecated("Deprecated in Java")

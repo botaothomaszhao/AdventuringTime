@@ -2,13 +2,17 @@ import 'dart:io';
 
 import 'package:adventuring_time/gpx_io.dart';
 import 'package:adventuring_time/models.dart';
+import 'package:adventuring_time/providers.dart';
 import 'package:adventuring_time/storage.dart';
 import 'package:adventuring_time/sync.dart';
+import 'package:adventuring_time/sync_server.dart';
 import 'package:adventuring_time/transfer.dart';
 import 'package:archive/archive.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   late Directory tmp;
@@ -183,5 +187,58 @@ void main() {
     // 合并进本地 a：t1 保留，t2 加入
     expect((await local.loadTrip('t1'))!.meta.name, '本地行程');
     expect((await local.loadTrip('t2'))!.meta.name, '包内行程');
+  });
+
+  test('服务器收到推送：落盘并触发 onChange 通知 UI', () async {
+    SharedPreferences.setMockInitialValues({'dataRoot': tmp.path});
+    // 找一个空闲端口
+    final probe = await ServerSocket.bind(InternetAddress.anyIPv4, 0);
+    final port = probe.port;
+    await probe.close();
+
+    final changed = <String?>[];
+    final server = SyncServer(port, onChange: changed.add);
+    await server.start();
+    addTearDown(server.stop);
+
+    // 客户端构造行程并推送到服务器（人物 a）
+    final client = PersonRepository(Directory(p.join(tmp.path, 'client')));
+    await client.root.create(recursive: true);
+    await client.savePerson(Person(
+        id: 'a', name: 'a', createdAt: DateTime.utc(2024, 1, 1), updatedAt: DateTime.utc(2024, 1, 1)));
+    await writeTripRaw(client, 't1', '远端行程', DateTime.utc(2024, 2, 1));
+
+    final unit = (await buildManifest(client)).firstWhere((u) => u.type == 'trip');
+    final bytes = await packUnit(client, unit);
+    await HttpSyncRemote('http://127.0.0.1:$port').pushUnit('a', unit, bytes);
+
+    expect(changed, ['a']);
+    final serverRepo = PersonRepository(Directory(p.join(tmp.path, 'people', 'a')));
+    expect((await serverRepo.loadTrip('t1'))!.meta.name, '远端行程');
+  });
+
+  test('同步拉取落盘后失效 provider 从磁盘重读（即时生效机制）', () async {
+    SharedPreferences.setMockInitialValues({'dataRoot': tmp.path});
+    final repo = await mkPerson('a');
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    final d1 = await container.read(personDataProvider('a').future);
+    expect(d1.life.waypoints, isEmpty);
+
+    // 模拟远端拉取的新数据已落盘
+    await repo.saveLife(GpxFile(waypoints: [
+      Waypoint(
+          id: 'ev1',
+          name: '同步来的事件',
+          latLng: const LatLng(30, 120),
+          createdAt: DateTime.utc(2024, 1, 1),
+          updatedAt: DateTime.utc(2024, 1, 1)),
+    ]));
+
+    container.invalidate(personDataProvider('a'));
+    final d2 = await container.read(personDataProvider('a').future);
+    expect(d2.life.waypoints, hasLength(1));
+    expect(d2.life.waypoints.first.name, '同步来的事件');
   });
 }

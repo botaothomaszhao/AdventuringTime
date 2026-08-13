@@ -71,8 +71,10 @@ class _MapPageState extends ConsumerState<MapPage>
   DiskCachedTileProvider? _tileProvider;
   LatLng? _myPos; // 实时定位点（空闲/暂停时 geolocator 流，仅前台订阅）
   LatLng? _livePos; // 记录中前台服务实时位置
+  DateTime? _livePosTime; // 实时位置定位时间
+  double? _liveSpeedMps; // 实时速度（每秒位置差计算，仅记录中）
   StreamSubscription<Position>? _posSub;
-  StreamSubscription<LatLng>? _liveSub;
+  StreamSubscription<RawPoint>? _liveSub;
   bool _locPermissionOk = false;
   int _activePointers = 0; // 地图上当前按下的触点数量
 
@@ -130,15 +132,35 @@ class _MapPageState extends ConsumerState<MapPage>
     if (!mounted) return;
     _locPermissionOk = true;
     _subscribeGeo();
-    _liveSub = LocationService.positions().listen((ll) {
-      if (mounted) setState(() => _livePos = ll);
-    });
+    _liveSub = LocationService.positions().listen(_onLivePos);
     final l = WidgetsBinding.instance.lifecycleState;
     await LocationService.setMode(
         l == AppLifecycleState.resumed ? 'foreground' : 'background');
   }
 
+  /// 前台服务实时位置：更新蓝点并据此算实时速度（每秒数据，非采样点）。
+  void _onLivePos(RawPoint p) {
+    if (!mounted) return;
+    setState(() {
+      final prev = _livePos;
+      final prevT = _livePosTime;
+      _livePos = p.latLng;
+      _livePosTime = p.time;
+      if (prev != null && prevT != null) {
+        final dt = p.time.difference(prevT).inMilliseconds / 1000.0;
+        // 间隔过短（抖动）或过大（暂停/后台恢复）时不更新速度
+        _liveSpeedMps = (dt >= 0.3 && dt <= 10) ? haversineM(prev, p.latLng) / dt : null;
+      }
+    });
+  }
+
+  /// 仅前台且已授权时才订阅 geolocator 蓝点流；先取消旧订阅防泄漏。
   void _subscribeGeo() {
+    if (!_locPermissionOk ||
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      return;
+    }
+    _posSub?.cancel();
     _posSub =
         Geolocator.getPositionStream(
           locationSettings: const LocationSettings(
@@ -150,14 +172,11 @@ class _MapPageState extends ConsumerState<MapPage>
         });
   }
 
-  /// 蓝点实时位置：空闲/暂停用 geolocator 流；记录中（前台）用服务位置流。
+  /// 蓝点实时位置：记录中用服务位置流；空闲/暂停优先 geolocator 实时位置，
+  /// 拿不到时用服务最后位置兜底，避免切换瞬间蓝点消失。
   LatLng? _currentBluePos(RecordState? rec) {
-    if (rec != null &&
-        rec.status == RecordStatus.recording &&
-        _livePos != null) {
-      return _livePos;
-    }
-    return _myPos;
+    final live = rec != null && rec.status == RecordStatus.recording ? _livePos : null;
+    return live ?? _myPos ?? _livePos;
   }
 
   /// 添加地点模式下点击蓝点：在当前位置添加地点。
@@ -211,7 +230,11 @@ class _MapPageState extends ConsumerState<MapPage>
         return;
       }
       // 清除上个会话残留的实时位置，避免新会话蓝点先显示旧位置
-      setState(() => _livePos = null);
+      setState(() {
+        _livePos = null;
+        _livePosTime = null;
+        _liveSpeedMps = null;
+      });
       await ref.read(recordingProvider.notifier).start();
     } else {
       final pts = await ref.read(recordingProvider.notifier).stop();
@@ -1106,6 +1129,7 @@ class _MapPageState extends ConsumerState<MapPage>
             right: 8,
             child: _RecordHud(
               rec: rec,
+              speedMps: _liveSpeedMps,
               onPauseResume: () {
                 final n = ref.read(recordingProvider.notifier);
                 if (rec.status == RecordStatus.recording) {
@@ -1853,9 +1877,14 @@ class _SelectedCard extends StatelessWidget {
 /// 记录中的右上角信息条：状态、时长、里程、暂停/继续。
 class _RecordHud extends StatefulWidget {
   final RecordState rec;
+  final double? speedMps; // 实时速度（每秒位置差计算）
   final VoidCallback onPauseResume;
 
-  const _RecordHud({required this.rec, required this.onPauseResume});
+  const _RecordHud({
+    required this.rec,
+    required this.speedMps,
+    required this.onPauseResume,
+  });
 
   @override
   State<_RecordHud> createState() => _RecordHudState();
@@ -1915,7 +1944,7 @@ class _RecordHudState extends State<_RecordHud> {
             Text(
               formatSpeedKmh(
                 rec.status == RecordStatus.recording
-                    ? currentSpeedMps(rec.points)
+                    ? widget.speedMps
                     : null,
               ),
               style: const TextStyle(fontSize: 13),

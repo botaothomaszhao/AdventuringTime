@@ -182,6 +182,7 @@ class TripDetailPage extends ConsumerWidget {
                       }),
                       const Divider(),
                       _row(context, '记录里程', formatMeters(stats.recordedMeters)),
+                      _row(context, '推算里程', formatMeters(estimatedTripMeters(trip, events))),
                       _row(context, '天数', '${stats.days} 天'),
                       _row(context, '地点', '${stats.placeCount} 个'),
                       _row(context, '路径', '${stats.pathCount} 条'),
