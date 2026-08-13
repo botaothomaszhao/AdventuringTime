@@ -157,8 +157,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         children: [
           const Text('地图瓦片源', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
-          const Text('如遇部分地区放大后不可用，可尝试更换瓦片源。自定义模板须为 WGS-84 Web Mercator。',
-              style: TextStyle(fontSize: 12, color: Colors.grey)),
+          Text('如遇部分地区放大后不可用，可尝试更换瓦片源。自定义模板须为 WGS-84 Web Mercator。',
+              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -221,8 +221,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           const Divider(height: 32),
           const Text('地址搜索服务', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
-          const Text('Photon（默认，墙内可用）；Nominatim 为 OSM 官方服务，墙内可能超时。',
-              style: TextStyle(fontSize: 12, color: Colors.grey)),
+          Text('Photon（默认，墙内可用）；Nominatim 为 OSM 官方服务，墙内可能超时。',
+              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
           const SizedBox(height: 8),
           SegmentedButton<String>(
             segments: const [
@@ -241,9 +241,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           const Divider(height: 32),
           const Text('局域网同步', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
-          const Text('Windows 端作为服务器（默认端口 8024），其他设备输入 IP:端口 后点同步。'
+          Text('Windows 端作为服务器（默认端口 8024），其他设备输入 IP:端口 后点同步。'
               '双向并集合并，冲突以较新版本为准，被覆盖版本自动进备份。',
-              style: TextStyle(fontSize: 12, color: Colors.grey)),
+              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
           const SizedBox(height: 8),
           if (Platform.isWindows) ...[
             Row(
@@ -277,7 +277,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             if (_ips.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text('本机 IP：${_ips.join('  /  ')}',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
             ],
             const SizedBox(height: 8),
           ],
@@ -303,7 +305,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ),
           if (_syncStatus.isNotEmpty) ...[
             const SizedBox(height: 8),
-            Text(_syncStatus, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+            Text(_syncStatus,
+                style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
           ],
           const Divider(height: 32),
           const Text('数据目录', style: TextStyle(fontWeight: FontWeight.bold)),

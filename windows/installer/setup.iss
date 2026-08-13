@@ -1,5 +1,5 @@
 #define MyAppName "Adventuring Time"
-#define MyAppVersion "1.1.11"
+#define MyAppVersion "1.1.18"
 #define MyAppPublisher "dev.adventuring"
 #define MyAppExeName "adventuring_time.exe"
 

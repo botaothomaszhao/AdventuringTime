@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,6 +12,9 @@ void main() {
   runApp(const ProviderScope(child: AdventuringTimeApp()));
 }
 
+/// 主题种子色（品牌绿）。
+const _seed = Color(0xFF4A7C59);
+
 class AdventuringTimeApp extends StatelessWidget {
   const AdventuringTimeApp({super.key});
 
@@ -18,7 +23,16 @@ class AdventuringTimeApp extends StatelessWidget {
     return MaterialApp(
       title: '探索的时光',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF4A7C59)),
+        colorScheme: ColorScheme.fromSeed(seedColor: _seed),
+        useMaterial3: true,
+      ),
+      // 深色模式仅安卓跟随系统，桌面保持浅色
+      themeMode: Platform.isAndroid ? ThemeMode.system : ThemeMode.light,
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: _seed,
+          brightness: Brightness.dark,
+        ),
         useMaterial3: true,
       ),
       initialRoute: '/',

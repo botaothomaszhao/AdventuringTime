@@ -41,7 +41,7 @@ class _LayerToggles {
 
 class _Selected {
   final String label;
-  final String? detail;
+  final Widget? detail;
   final DateTime? time;
   final TimePrecision? precision;
   final List<Widget> Function() actions;
@@ -396,7 +396,7 @@ class _MapPageState extends ConsumerState<MapPage>
     setState(() {
       _selected = _Selected(
         label: w.name.isEmpty ? '（未命名）' : w.name,
-        detail: w.desc,
+        detail: w.desc == null ? null : Text(w.desc!),
         time: w.time,
         precision: w.timePrecision,
         actions: () {
@@ -501,8 +501,20 @@ class _MapPageState extends ConsumerState<MapPage>
     setState(() {
       _selected = _Selected(
         label: p.name.isEmpty ? '（未命名路径）' : p.name,
-        detail:
-            '${p.isGps ? 'GPS 轨迹' : '手绘路径'} · 长度 $length$speed${p.desc != null ? '\n${p.desc}' : ''}',
+        detail: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              runSpacing: 4,
+              children: [
+                Text(p.isGps ? 'GPS 轨迹' : '手绘路径'),
+                Text(' · '),
+                Text('长度 $length$speed'),
+              ],
+            ),
+            if (p.desc != null) Text(p.desc!),
+          ],
+        ),
         actions: () {
           return [
             if (!p.isGps)
@@ -570,8 +582,9 @@ class _MapPageState extends ConsumerState<MapPage>
     setState(() {
       _selected = _Selected(
         label: t.meta.name.isEmpty ? '（未命名行程）' : t.meta.name,
-        detail:
-            '${fmtDate(t.meta.startDate)} 至 ${fmtDate(t.meta.endDate)} · ${stats.placeCount} 个地点 · ${stats.pathCount} 条路径',
+        detail: Text(
+          '${fmtDate(t.meta.startDate)} 至 ${fmtDate(t.meta.endDate)} · ${stats.placeCount} 个地点 · ${stats.pathCount} 条路径',
+        ),
         actions: () {
           return [
             ListTile(
@@ -952,6 +965,12 @@ class _MapPageState extends ConsumerState<MapPage>
     final tileUrl = ref
         .watch(tileUrlProvider)
         .maybeWhen(data: (u) => u, orElse: () => '');
+    // 瓦片层：深色模式下应用内置反色滤镜（容器级，性能好）
+    final tileLayer = TileLayer(
+      urlTemplate: tileUrl,
+      userAgentPackageName: 'dev.adventuring.time',
+      tileProvider: _tileProvider ?? CancellableNetworkTileProvider(),
+    );
     // 记录会话状态（仅 Android，Windows 不 watch 避免调用原生通道）
     final rec = Platform.isAndroid ? ref.watch(recordingProvider) : null;
     // 记录中停用 geolocator 蓝点流（位置由前台服务喂），避免双 GPS 请求与暂停时的旧位置跳变
@@ -993,11 +1012,10 @@ class _MapPageState extends ConsumerState<MapPage>
               onTap: _onTap,
             ),
             children: [
-              TileLayer(
-                urlTemplate: tileUrl,
-                userAgentPackageName: 'dev.adventuring.time',
-                tileProvider: _tileProvider ?? CancellableNetworkTileProvider(),
-              ),
+              if (Theme.of(context).brightness == Brightness.dark)
+                darkModeTilesContainerBuilder(context, tileLayer)
+              else
+                tileLayer,
               ..._buildLayers(people, containers, rec),
               // 绘制模式预览线（必须在 FlutterMap 内，依赖 MapCamera；空点不渲染）
               if (_mode == _EditMode.drawPath && _draftPoints.isNotEmpty)
@@ -1464,7 +1482,10 @@ class _MapPageState extends ConsumerState<MapPage>
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 child: Text(
                   '结果已用数字标注在地图上，点击数字或下方列表选点',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             for (final r in _searchResults)
@@ -1808,14 +1829,17 @@ class _SelectedCard extends StatelessWidget {
             if (sel.detail != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
-                child: Text(sel.detail!),
+                child: sel.detail!,
               ),
             if (sel.time != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Text(
                   formatTime(sel.time!, sel.precision),
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ...sel.actions(),

@@ -181,11 +181,11 @@ class TripDetailPage extends ConsumerWidget {
                         await saveMeta();
                       }),
                       const Divider(),
-                      _row('记录里程', formatMeters(stats.recordedMeters)),
-                      _row('天数', '${stats.days} 天'),
-                      _row('地点', '${stats.placeCount} 个'),
-                      _row('路径', '${stats.pathCount} 条'),
-                      _row('照片', '${stats.mediaCount} 张'),
+                      _row(context, '记录里程', formatMeters(stats.recordedMeters)),
+                      _row(context, '天数', '${stats.days} 天'),
+                      _row(context, '地点', '${stats.placeCount} 个'),
+                      _row(context, '路径', '${stats.pathCount} 条'),
+                      _row(context, '照片', '${stats.mediaCount} 张'),
                     ],
                   ),
                 ),
@@ -287,13 +287,15 @@ class TripDetailPage extends ConsumerWidget {
     ];
   }
 
-  Widget _row(String label, String value) {
+  Widget _row(BuildContext context, String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Colors.grey)),
+          Text(label,
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
           Text(value),
         ],
       ),
@@ -421,9 +423,10 @@ List<Waypoint> _allWaypoints(PersonData d) =>
 
 List<PathData> _allPaths(PersonData d) => [for (final t in d.trips) ...t.gpx.paths];
 
-/// 路径列表项副标题：手绘路径只标类型，GPS 轨迹附加速度统计。
+/// 路径列表项副标题：手绘路径只标类型，GPS 轨迹显示长度与速度统计。
 String _pathSubtitle(PathData p) {
   if (!p.isGps) return '手绘路径';
+  final length = formatMeters(pathLengthM([for (final pt in p.points) pt.latLng]));
   final s = pathSpeedStats(p.points);
-  return 'GPS 轨迹 · 平均 ${formatSpeedKmh(s.avgMps)} · 最高 ${formatSpeedKmh(s.maxMps)}';
+  return '长度 $length · 平均 ${formatSpeedKmh(s.avgMps)} · 最高 ${formatSpeedKmh(s.maxMps)}';
 }

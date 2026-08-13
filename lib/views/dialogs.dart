@@ -209,9 +209,15 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
         .watch(personDataProvider(widget.personId))
         .maybeWhen(data: (d) => d.trips, orElse: () => <TripBundle>[]);
     if (trips.isEmpty) {
-      return const Align(
+      return Align(
         alignment: Alignment.centerLeft,
-        child: Text('还没有行程，请先在地图上新建行程', style: TextStyle(color: Colors.grey, fontSize: 12)),
+        child: Text(
+          '还没有行程，请先在地图上新建行程',
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
       );
     }
     return DropdownButtonFormField<String>(
@@ -322,7 +328,10 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
             const SizedBox(height: 8),
             Text(
               '照片',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 8),
             _PhotoList(
@@ -557,10 +566,12 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
     };
   }
 
-  /// GPS 轨迹速度统计摘要（编辑既有路径时展示）。
+  /// GPS 轨迹长度与速度统计摘要（编辑既有路径时展示）。
   String _speedSummary() {
-    final s = pathSpeedStats(widget.existing!.points);
-    return '平均 ${formatSpeedKmh(s.avgMps)} · 最高 ${formatSpeedKmh(s.maxMps)}';
+    final p = widget.existing!.points;
+    final length = formatMeters(pathLengthM([for (final pt in p) pt.latLng]));
+    final s = pathSpeedStats(p);
+    return '长度 $length · 平均 ${formatSpeedKmh(s.avgMps)} · 最高 ${formatSpeedKmh(s.maxMps)}';
   }
 
   @override
@@ -609,12 +620,18 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
               padding: const EdgeInsets.only(top: 12, bottom: 4),
               child: Text(
                 _time == null ? 'GPS 轨迹' : 'GPS 轨迹 · ${_fmtTime()}',
-                style: const TextStyle(fontSize: 14, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
             Text(
               _speedSummary(),
-              style: const TextStyle(fontSize: 13, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
             ),
             const SizedBox(height: 12),
           ],
@@ -820,7 +837,10 @@ class _TripDialogState extends ConsumerState<_TripDialog> {
             const SizedBox(height: 8),
             Text(
               '照片',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 8),
             _PhotoList(

@@ -151,7 +151,10 @@ class _InlineTextEditState extends State<InlineTextEdit> {
             _c.text.isEmpty ? (widget.hint ?? '点击编辑') : _c.text,
             style: widget.style ??
                 (_c.text.isEmpty
-                    ? TextStyle(color: Colors.grey.shade500, fontStyle: FontStyle.italic)
+                    ? TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontStyle: FontStyle.italic,
+                      )
                     : null),
           ),
         ),
