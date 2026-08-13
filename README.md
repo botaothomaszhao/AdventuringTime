@@ -15,6 +15,15 @@
 - **局域网同步**：Windows 端作服务器，多设备双向合并
 - **备份**：每次写入前自动备份（内容无变化时跳过）；人物整包导出/导入（.atrip）
 
+## 下载与安装
+
+正式安装包发布在 GitHub **Release** 页（https://github.com/botaothomaszhao/AdventuringTime/releases）：
+
+- **Android**：下载最新版本的 `.apk` 安装包，传到手机后手动安装（首次需允许「安装未知应用」；签名变化时需先卸载旧版）。
+- **Windows**：下载最新版本的 Windows 安装包，解压后直接运行 `adventuring_time.exe`，无需安装。
+
+各版本信息与变更记录见 Release 说明。
+
 ## 使用说明
 
 ### 1. 首次启动：创建人物
