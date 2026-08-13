@@ -221,7 +221,7 @@ class LocationForegroundService : Service() {
         // 被杀后系统重启：按上次状态恢复采样（记录中断续记），段起始从状态文件恢复避免计时丢失
         val s = readState(this)
         recording = s.state == STATE_RECORDING
-        segmentStartMs = if (recording) (s.segmentMs.takeIf { it > 0 } ?: System.currentTimeMillis()) else 0L
+        segmentStartMs = if (recording) System.currentTimeMillis() else 0L
         if (recording) startUpdates()
     }
 
@@ -238,8 +238,7 @@ class LocationForegroundService : Service() {
             }
             ACTION_RESUME -> {
                 val s = readState(this)
-                // 上次记录段未结算（被杀恢复）时延续原段起始，避免计时重置
-                segmentStartMs = if (s.segmentMs > 0) s.segmentMs else System.currentTimeMillis()
+                segmentStartMs = System.currentTimeMillis()
                 recording = true
                 writeState(this, STATE_RECORDING, s.startMs, s.activeMs, segmentStartMs)
                 startUpdates()
@@ -283,6 +282,14 @@ class LocationForegroundService : Service() {
         } catch (_: Exception) {
             // 磁盘不可写时丢弃，不阻塞定位
         }
+        // 采点即结算当前段到此刻并推进段起点：被杀/大退后恢复时不把无点时段算进时长
+        if (segmentStartMs > 0) {
+            val s = readState(this)
+            val now = System.currentTimeMillis()
+            val active = s.activeMs + (now - segmentStartMs).coerceAtLeast(0)
+            segmentStartMs = now
+            writeState(this, STATE_RECORDING, s.startMs, active, segmentStartMs)
+        }
     }
 
     private fun startUpdates() {
@@ -290,8 +297,8 @@ class LocationForegroundService : Service() {
         val netOn = lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
         if (!gpsOn && !netOn) return
         stopUpdates()
-        // 前台 1s（蓝点实时），后台降频 10s（采样阈值 20m/30s，低频无损）
-        val minTime = if (mode == MODE_FOREGROUND) 1_000L else 10_000L
+        // 前台 1s（蓝点实时），后台降频 5s（采样阈值 20m/30s，低频无损）
+        val minTime = if (mode == MODE_FOREGROUND) 1_000L else 5_000L
         try {
             if (gpsOn) lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, minTime, 0f, listener)
             if (netOn) lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, minTime, 0f, listener)

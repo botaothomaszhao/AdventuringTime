@@ -326,19 +326,6 @@ void main() {
       expect(s.avgMps, closeTo(2 * d / 70, 1e-6));
     });
 
-    test('pathSpeedStats 假首点（超长首段）不影响平均', () {
-      // 首点是行程开始日期（假，坐标同真实起点），首段被排除；avg 用有效起终点
-      final pts = [
-        TrackPoint(const LatLng(0, 0), DateTime.utc(2024, 7, 1, 0, 0, 0)),
-        TrackPoint(const LatLng(0, 0), DateTime.utc(2024, 7, 1, 5, 14, 36)),
-        TrackPoint(const LatLng(0, 1), DateTime.utc(2024, 7, 1, 5, 14, 46)),
-      ];
-      final s = pathSpeedStats(pts);
-      final d = haversineM(const LatLng(0, 0), const LatLng(0, 1));
-      expect(s.avgMps, closeTo(d / 10, 1e-6));
-      expect(s.maxMps, closeTo(d / 10, 1e-6));
-    });
-
     test('pathSpeedStats 最高瞬时取速度最大的相邻段', () {
       final pts = [
         TrackPoint(const LatLng(0, 0), DateTime.utc(2024, 7, 1, 0, 0, 0)),

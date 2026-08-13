@@ -153,7 +153,8 @@ class RecordingNotifier extends Notifier<RecordState> {
     if (s.points.isEmpty && !wasRecording) return;
     final pts = [for (final p in s.points) TrackPoint(p.latLng, p.time)];
     _lastRawTime = s.points.isEmpty ? null : s.points.last.time;
-    if (wasRecording && !s.running) {
+    final resumed = wasRecording && !s.running;
+    if (resumed) {
       await LocationService.resume();
       await _syncMode();
     }
@@ -163,7 +164,7 @@ class RecordingNotifier extends Notifier<RecordState> {
       pathLengthM([for (final p in pts) p.latLng]),
       s.startAt,
       s.activeMs ~/ 1000,
-      wasRecording ? (s.segmentStart ?? DateTime.now()) : null,
+      wasRecording ? (resumed ? DateTime.now() : (s.segmentStart ?? DateTime.now())) : null,
     );
     _sub ??= LocationService.rawPoints().listen(_onRaw);
   }

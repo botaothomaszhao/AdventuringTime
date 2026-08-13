@@ -30,7 +30,7 @@
 
 ```bash
 flutter analyze lib            # 静态检查（仅看 error；driver_main 的两个 future 警告为已知）
-flutter test                   # 32 个测试，须全绿后提交
+flutter test                   # 39 个测试，须全绿后提交
 flutter build windows --release
 flutter build apk --release    # 安卓 release（debug key 签名）；成功后 push 到手机（文件名带版本号，如 adventuring_time_1.1.3.apk）：
 # & D:\Android\sdk\platform-tools\adb.exe push build\app\outputs\flutter-apk\app-release.apk /sdcard/Download/adventuring_time_<versionName>.apk
@@ -94,7 +94,7 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 - **轨迹线** `buildLifePath`：长期地点+行程按时间排序；行程内部路径/地点/起点长期地点按时间相连、**最后连回终点**；段带 `tripId` 供点击打开行程。改它必跑 `test/lifecycle_test.dart`
 - **绘制路径**：点"绘制路径"→ 点击落点（onTapDown 加点，onTapCancel 撤销误加点）→ 工具栏"完成"→ 选行程 → 路径对话框。预览线必须在 FlutterMap children 内且 `_draftPoints.isNotEmpty` 才渲染（放外面会抛 MapCamera.of 错误页，空点会断言崩溃——两个都踩过坑）
 - **添加地点**：地图落点 → 对话框（名称可异步反向地理编码、到达时间必填、长期地点或选所属行程）。从行程卡片"添加地点"进入时预选行程并预填时间（行程开始或最后地点/路径时间）
-- **安卓定位记录**（Kotlin 前台服务 + 地图页浮层，详见 PLAN.md §6.6）：左上按钮开始/停止、右上信息条（时长/里程/暂停继续）、橙色实时轨迹层、蓝点（空闲用 geolocator 流，记录会话期间改用前台服务实时位置，记录/暂停均实时不跳变；添加地点模式下点蓝点=在当前位置添加地点）、右下角回位按钮（方向复位正北）。采样（20m/30s）与落盘都在原生侧（`filesDir/rec_session.jsonl` + `rec_state`），被杀自动恢复续记；重进 app 时 RecordingNotifier 从原生拉回会话。Windows 上所有相关 UI 走 `Platform.isAndroid` 分支且不 watch `recordingProvider`
+- **安卓定位记录**（Kotlin 前台服务 + 地图页浮层，详见 PLAN.md §6.6）：左上按钮开始/停止、右上信息条（时长/里程/实时当前速度/暂停继续）、橙色实时轨迹层、蓝点（空闲用 geolocator 流，记录会话期间改用前台服务实时位置，记录/暂停均实时不跳变；添加地点模式下点蓝点=在当前位置添加地点）、右下角回位按钮（方向复位正北）。采样（20m/30s，后台降频 5s）与落盘都在原生侧（`filesDir/rec_session.jsonl` + `rec_state`），**每采一点即结算段时长**，被杀自动恢复续记（无点时段不计入时长）；重进 app 时 RecordingNotifier 从原生拉回会话。GPS 轨迹保存后展示平均/最高速度（口径见 `pathSpeedStats`，超 31s 间隔段不计瞬时）。Windows 上所有相关 UI 走 `Platform.isAndroid` 分支且不 watch `recordingProvider`
 
 ## 测试与验证
 
@@ -106,6 +106,7 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 ## 约定与陷阱
 
 - 回复与注释用中文，无 emoji（全局 AGENTS.md 已约定）
+- **文档需及时更新**：功能/数据模型/命令/测试数等有实质变化时，同步更新 README.md、PLAN.md、AGENTS.md 与涉及的功能说明，随提交一起进版本，不留欠账
 - 不写无意义代码；对外部输入做必要校验；基础依赖不可用直接抛错
 - `analysis_options.yaml` 用 flutter_lints 6；勿引入新的状态管理/地图方案
 - 修改 models/gpx_io 时同步检查 `test/gpx_io_test.dart` 与 `storage_test.dart`
