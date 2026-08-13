@@ -15,12 +15,12 @@
 - **局域网同步**：Windows 端作服务器，多设备双向合并
 - **备份**：每次写入前自动备份（内容无变化时跳过）；人物整包导出/导入（.atrip）
 
-## 下载与安装
+## 一键安装
 
-正式安装包发布在 GitHub **Release** 页（https://github.com/botaothomaszhao/AdventuringTime/releases）：
+正式安装包发布在 GitHub **Release** 页：[https://github.com/botaothomaszhao/AdventuringTime/releases](https://github.com/botaothomaszhao/AdventuringTime/releases)
 
 - **Android**：下载最新版本的 `.apk` 安装包，传到手机后手动安装（首次需允许「安装未知应用」；签名变化时需先卸载旧版）。
-- **Windows**：下载最新版本的 Windows 安装包，解压后直接运行 `adventuring_time.exe`，无需安装。
+- **Windows**：下载最新版本的 `setup` 安装包（`.exe`），双击运行按向导完成安装，桌面/开始菜单会出现应用图标。
 
 各版本信息与变更记录见 Release 说明。
 
@@ -132,7 +132,7 @@ GPX 扩展：`isEvent`（长期地点，atrip:eventType=life）、`timePrecision
 - 数据存储：GPX 文件 + JSON 元数据（见上文）
 - 局域网同步：Windows 内置 HTTP 服务（端口 8024）
 
-## 构建与运行
+## 从源码构建
 
 ```bash
 flutter pub get
