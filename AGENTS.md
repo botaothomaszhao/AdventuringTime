@@ -30,7 +30,7 @@
 
 ```bash
 flutter analyze lib            # 静态检查（仅看 error；driver_main 的两个 future 警告为已知）
-flutter test                   # 44 个测试，须全绿后提交
+flutter test                   # 42 个测试，须全绿后提交
 flutter build windows --release
 flutter build apk --release    # 安卓 release（debug key 签名）；成功后 push 到手机（文件名带版本号，如 adventuring_time_1.1.3.apk）：
 # & D:\Android\sdk\platform-tools\adb.exe push build\app\outputs\flutter-apk\app-release.apk /sdcard/Download/adventuring_time_<versionName>.apk
@@ -70,7 +70,7 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 | `lifecycle.dart` | 纯函数：haversine、buildLifePath（轨迹线）、tripStats、formatLatLng |
 | `geo_search.dart` | Photon 搜索 searchAddress / 反向 reverseAddress |
 | `tile_cache.dart` | 瓦片磁盘缓存 |
-| `location_service.dart` | 安卓定位通道封装 + `recordingProvider`（RecordingNotifier 记录会话，恢复/暂停/停止）；Windows 不 watch |
+| `location_service.dart` | 安卓定位通道封装 + `recordingProvider`（RecordingNotifier 记录会话，恢复/停止，无暂停）；Windows 不 watch |
 | `views/map_page.dart` | 地图主页面（核心，改动最多）；安卓含蓝点、记录浮层（左上按钮/右上信息条/右下回位）、实时轨迹层 |
 | `views/dialogs.dart` | 全部表单对话框（地点/路径/行程/人）；`pickValueDialog` 年/月选择器；`showRecordSaveDialog` 轨迹保存 |
 | `views/timeline_page.dart` | 时间线（长期地点+行程混合，`buildTimelineItems` 纯函数可测） |
@@ -94,7 +94,7 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 - **轨迹线** `buildLifePath`：长期地点+行程按时间排序；行程内部路径/地点/起点长期地点按时间相连、**最后连回终点**；段带 `tripId` 供点击打开行程。改它必跑 `test/lifecycle_test.dart`
 - **绘制路径**：点"绘制路径"→ 点击落点（onTapDown 加点，onTapCancel 撤销误加点）→ 工具栏"完成"→ 选行程 → 路径对话框。预览线必须在 FlutterMap children 内且 `_draftPoints.isNotEmpty` 才渲染（放外面会抛 MapCamera.of 错误页，空点会断言崩溃——两个都踩过坑）
 - **添加地点**：地图落点 → 对话框（名称可异步反向地理编码、到达时间必填、长期地点或选所属行程）。从行程卡片"添加地点"进入时预选行程并预填时间（行程开始或最后地点/路径时间）
-- **安卓定位记录**（Kotlin 前台服务 + 地图页浮层，详见 PLAN.md §6.6）：左上按钮开始/停止、右上信息条（时长/里程/实时当前速度/暂停继续）、橙色实时轨迹层、蓝点、右下角回位按钮（方向复位正北）。服务仅"记录中"运行（前台 1s 定位、后台降频 10s；暂停/空闲停止服务、通知消失），采样（位移>20m 或间隔>30s）与落盘在原生侧（`filesDir/rec_session.jsonl` + `rec_state`，状态文件 `state|startMs|activeMs|segmentMs` 持久化段起始，大退后计时不重置）；实时速度用前台每秒位置差计算（非采样点）。蓝点：空闲/暂停用 geolocator 流（仅前台订阅；记录中停用以避免双 GPS 请求），记录中（前台）用服务实时位置，暂停/停止后以服务最后位置兜底不消失；添加地点模式下点蓝点=在当前位置添加地点。GPS 轨迹保存后展示平均/最高速度（口径见 `pathSpeedStats`，超 31s 间隔段不计瞬时）。Windows 上所有相关 UI 走 `Platform.isAndroid` 分支且不 watch `recordingProvider`
+- **安卓定位记录**（Kotlin 前台服务 + 地图页浮层，详见 PLAN.md §6.6）：左上按钮开始/停止、右上信息条（时长/里程/实时当前速度）、橙色实时轨迹层、蓝点、右下角回位按钮（方向复位正北）。**无暂停，路径记录一定是一整段，计时=当前-会话开始（大退/被杀重进也算时间）**。服务仅"记录中"运行（前台 1s 定位、后台降频 5s；空闲停止服务、通知消失），采样（位移>20m 或间隔>20s）与落盘在原生侧（`filesDir/rec_session.jsonl` + `rec_state`，状态文件只存会话开始时间 startMs，被杀后 START_STICKY 重启恢复采样）；**前台模式每次定位都推实时位置到位置通道**（与采样解耦，蓝点/实时速度每秒更新）。蓝点：记录中 geolocator 保持订阅（含后台，GPS 热、回前台不冷启动），未记录时进后台延迟 60s 再取消订阅（快速切回仍可用）、回前台重订阅并先以系统最后位置兜底，蓝点取 geolocator 与服务实时位置两源中定位时间最新者；添加地点模式下点蓝点=在当前位置添加地点。GPS 轨迹保存后展示平均/最高速度（口径见 `pathSpeedStats`，超 21s 间隔段不计瞬时）。Windows 上所有相关 UI 走 `Platform.isAndroid` 分支且不 watch `recordingProvider`
 
 ## 测试与验证
 

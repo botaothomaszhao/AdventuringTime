@@ -35,7 +35,7 @@ class MainActivity : FlutterActivity() {
             }
         })
 
-        // 实时位置通道：蓝点用，会话期间（记录/暂停）持续推送
+        // 实时位置通道：蓝点/实时速度用，前台模式每次定位推送
         EventChannel(messenger, "$channel/position").setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                 LocationForegroundService.attachPositionSink(events)
@@ -54,10 +54,6 @@ class MainActivity : FlutterActivity() {
                     sendAction(LocationForegroundService.ACTION_START)
                     result.success(null)
                 }
-                "pause" -> {
-                    sendAction(LocationForegroundService.ACTION_PAUSE)
-                    result.success(null)
-                }
                 "resume" -> {
                     sendAction(LocationForegroundService.ACTION_RESUME)
                     result.success(null)
@@ -69,7 +65,7 @@ class MainActivity : FlutterActivity() {
                 }
                 "getSession" -> result.success(LocationForegroundService.sessionSnapshot(this))
                 "setMode" -> {
-                    // 服务未运行时不启动（空闲/暂停时无需调频）
+                    // 服务未运行时不启动（空闲时无需调频）
                     if (LocationForegroundService.running) {
                         when (call.arguments as? String) {
                             "foreground" ->

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -9,8 +8,9 @@ import 'package:latlong2/latlong.dart';
 import 'lifecycle.dart';
 import 'models.dart';
 
-/// 原生定位通道封装。采样（位移 > 20m 或间隔 > 30s）与落盘都在 Kotlin 前台服务，
-/// Dart 侧维护 UI 会话状态；重进应用时从原生拉回会话恢复，被杀不丢数据。
+/// 原生定位通道封装。采样（位移 > 20m 或间隔 > 20s）与落盘都在 Kotlin 前台服务，
+/// Dart 侧维护 UI 会话状态；路径记录一定是一整段（无暂停），计时=当前-会话开始，
+/// 重进应用时从原生拉回会话与开始时间恢复，被杀不丢数据、计时不停。
 class LocationService {
   LocationService._();
 
@@ -19,7 +19,8 @@ class LocationService {
   static const _posEvents = EventChannel('adventuring_time/location/position');
 
   static Future<void> start() => _channel.invokeMethod('start');
-  static Future<void> pause() => _channel.invokeMethod('pause');
+
+  /// 恢复采样（重进应用且服务未运行，或被杀后恢复时调用）。
   static Future<void> resume() => _channel.invokeMethod('resume');
 
   /// 前台/后台模式：前台 1s 定位（蓝点+轨迹），后台降频只采样。服务未运行时 no-op。
@@ -30,15 +31,12 @@ class LocationService {
   static Future<List<RawPoint>> stop() async =>
       _decodePoints(await _channel.invokeMethod('stop'));
 
-  /// 会话快照：运行状态、持久化状态（1 记录中/0 暂停）、开始时间、累计时长、当前段起始、采样点。
+  /// 会话快照：运行状态、会话开始时间、采样点。
   static Future<SessionSnapshot> session() async {
     final m = await _channel.invokeMethod('getSession') as Map;
     return SessionSnapshot(
       running: m['running'] as bool? ?? false,
-      state: m['state'] as String? ?? '0',
       startAt: _msToTime(m['startAt']),
-      segmentStart: _msToTime(m['segmentStart']),
-      activeMs: (m['activeMs'] as num?)?.toInt() ?? 0,
       points: _decodePoints(m['points']),
     );
   }
@@ -64,7 +62,7 @@ class LocationService {
   static Stream<RawPoint> rawPoints() =>
       _events.receiveBroadcastStream().map((e) => _decodePoints([e]).first);
 
-  /// 实时位置流（仅供蓝点）：会话期间前台服务每次定位都推送（约 1s），含定位时间。
+  /// 实时位置流（仅供蓝点/实时速度）：前台模式服务每次定位都推送（约 1s），含定位时间。
   static Stream<RawPoint> positions() =>
       _posEvents.receiveBroadcastStream().map((e) => _decodePoints([e]).first);
 
@@ -90,46 +88,31 @@ class RawPoint {
 
 class SessionSnapshot {
   final bool running;
-  final String state; // '1' 记录中 / '0' 暂停（持久化状态文件值）
-  final DateTime? startAt;
-  final DateTime? segmentStart; // 当前记录段起始时间
-  final int activeMs; // 已累计的记录时长（不含暂停）
+  final DateTime? startAt; // 会话开始时间（持久化，跨大退）
   final List<RawPoint> points;
 
   SessionSnapshot({
     required this.running,
-    required this.state,
     required this.startAt,
-    required this.segmentStart,
-    required this.activeMs,
     required this.points,
   });
 }
 
-enum RecordStatus { idle, recording, paused }
+enum RecordStatus { idle, recording }
 
-/// 一次记录会话的状态：已采样轨迹点 + 累计里程 + 开始时间 + 记录时长。
+/// 一次记录会话的状态：已采样轨迹点 + 累计里程 + 会话开始时间（计时=当前-开始）。
 class RecordState {
   final RecordStatus status;
   final List<TrackPoint> points;
   final double meters;
   final DateTime? startedAt;
-  final int recordingSeconds; // 已累计记录时长（不含暂停）
-  final DateTime? activeSince; // 当前记录段起始；暂停时为 null
 
-  const RecordState(
-    this.status,
-    this.points,
-    this.meters, [
-    this.startedAt,
-    this.recordingSeconds = 0,
-    this.activeSince,
-  ]);
+  const RecordState(this.status, this.points, this.meters, [this.startedAt]);
 
   static const idle = RecordState(RecordStatus.idle, [], 0);
 }
 
-/// 记录会话：重进应用时从原生恢复（点已落盘，服务被杀了也不丢）。
+/// 记录会话：重进应用时从原生恢复（点已落盘、开始时间已持久化，服务被杀了也不丢）。
 final recordingProvider =
     NotifierProvider<RecordingNotifier, RecordState>(RecordingNotifier.new);
 
@@ -143,56 +126,30 @@ class RecordingNotifier extends Notifier<RecordState> {
     return RecordState.idle;
   }
 
-  /// 重进应用：会话文件有点即恢复。上次为记录中则直接继续记录（服务未运行则先恢复采样）。
+  /// 重进应用：有会话（点或开始时间）即恢复为记录中，服务未运行则先恢复采样。
   Future<void> _restore() async {
     final s = await LocationService.session();
-    final wasRecording = s.state == '1';
-    if (s.points.isEmpty && !wasRecording) return;
+    if (s.startAt == null && s.points.isEmpty) return;
     final pts = [for (final p in s.points) TrackPoint(p.latLng, p.time)];
     _lastRawTime = s.points.isEmpty ? null : s.points.last.time;
-    final resumed = wasRecording && !s.running;
-    if (resumed) {
+    if (!s.running) {
       await LocationService.resume();
-      await _syncMode();
+      await LocationService.setMode('foreground');
     }
     state = RecordState(
-      wasRecording ? RecordStatus.recording : RecordStatus.paused,
+      RecordStatus.recording,
       pts,
       pathLengthM([for (final p in pts) p.latLng]),
       s.startAt,
-      s.activeMs ~/ 1000,
-      wasRecording ? (resumed ? DateTime.now() : (s.segmentStart ?? DateTime.now())) : null,
     );
     _sub ??= LocationService.rawPoints().listen(_onRaw);
   }
 
-  /// 按当前 app 前后台同步服务定位频率（记录开始/恢复后服务刚启动，需纠正模式）。
-  Future<void> _syncMode() async {
-    final l = WidgetsBinding.instance.lifecycleState;
-    await LocationService.setMode(
-        l == AppLifecycleState.resumed ? 'foreground' : 'background');
-  }
-
   Future<void> start() async {
     _sub ??= LocationService.rawPoints().listen(_onRaw);
-    state = RecordState(RecordStatus.recording, [], 0, DateTime.now(), 0, DateTime.now());
+    state = RecordState(RecordStatus.recording, [], 0, DateTime.now());
     await LocationService.start();
-    await _syncMode();
-  }
-
-  Future<void> pause() async {
-    await LocationService.pause();
-    final last = state.activeSince ?? DateTime.now();
-    final secs = state.recordingSeconds + DateTime.now().difference(last).inSeconds;
-    state = RecordState(
-        RecordStatus.paused, state.points, state.meters, state.startedAt, secs, null);
-  }
-
-  Future<void> resume() async {
-    await LocationService.resume();
-    await _syncMode();
-    state = RecordState(RecordStatus.recording, state.points, state.meters, state.startedAt,
-        state.recordingSeconds, DateTime.now());
+    await LocationService.setMode('foreground');
   }
 
   /// 停止记录，返回全部采样点（会话清零）。
@@ -215,8 +172,6 @@ class RecordingNotifier extends Notifier<RecordState> {
       pts,
       pts.length < 2 ? 0 : state.meters + haversineM(pts[pts.length - 2].latLng, p.latLng),
       state.startedAt,
-      state.recordingSeconds,
-      state.activeSince,
     );
   }
 }

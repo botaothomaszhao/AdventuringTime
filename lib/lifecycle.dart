@@ -323,11 +323,11 @@ String formatLatLng(LatLng ll) {
   return '${ll.latitude.abs().toStringAsFixed(5)}°$ns ${ll.longitude.abs().toStringAsFixed(5)}°$ew';
 }
 
-/// 相邻采样点速度统计的间隔上限（秒）。原生采样阈值 30s，正常点对间隔必 ≤30s，
+/// 相邻采样点速度统计的间隔上限（秒）。原生采样阈值 20s，正常点对间隔必 ≤20s，
 /// 超过即为暂停/无信号造成的无效段，速度不可靠，不参与统计。
-const int maxSpeedGapSec = 31;
+const int maxSpeedGapSec = 21;
 
-/// 有效相邻段（间隔 ≤31s 且时间正序），返回每段距离（m）与时长（s）。
+/// 有效相邻段（间隔 ≤21s 且时间正序），返回每段距离（m）与时长（s）。
 /// 排除暂停/无信号造成的超长间隔段；avg 与 max 共用同一批段，口径一致。
 List<({double dist, int secs})> _validSegments(List<TrackPoint> pts) {
   final out = <({double dist, int secs})>[];

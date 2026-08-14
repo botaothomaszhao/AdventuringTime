@@ -226,16 +226,16 @@ data/
 ### 6.6 安卓实时轨迹记录（已实现，与下述有出入时以本标注为准）
 
 - 自写 Kotlin 前台服务插件（method channel，channel 名 `adventuring_time/location`）：
-  - 服务类 `LocationForegroundService`：系统 `LocationManager` 定位（GPS 优先、网络兜底，GPS 有 fix 时 15s 内忽略网络定位点防抖动）；**前台 1s 定位、后台降频 10s**（采样阈值 20m/30s，低频无损）
+  - 服务类 `LocationForegroundService`：系统 `LocationManager` 定位（GPS 优先、网络兜底，GPS 有 fix 时 15s 内忽略网络定位点防抖动）；**前台 1s 定位、后台降频 5s**（采样阈值 20m/20s，低频无损）
   - AndroidManifest 权限：`INTERNET`（release 必须显式声明，debug 由 Flutter 自动注入）、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_LOCATION`、`ACCESS_FINE_LOCATION`、`ACCESS_COARSE_LOCATION`、`POST_NOTIFICATIONS`、`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
-  - 采样在原生侧（不在 geolocator 流回调）：**位移 > 20m 或间隔 > 30s** 记一点，点即写落盘 `filesDir/rec_session.jsonl`（JSONL，每行一原始采样点）
-  - 会话状态文件 `rec_state`（格式 `state|startMs|activeMs|segmentMs`，segmentMs=当前记录段起始，大退后段起始从文件恢复，计时不重置）：服务被杀后 `START_STICKY` 重启时按状态恢复采样，继续向同一文件追加，**记录不中断、数据不丢**；重进应用从文件拉回全量点恢复会话（服务彻底未重启时恢复为暂停态，可点继续接着记或停止保存）
+  - 采样在原生侧（不在 geolocator 流回调）：**位移 > 20m 或间隔 > 20s** 记一点，点即写落盘 `filesDir/rec_session.jsonl`（JSONL，每行一原始采样点）
+  - 会话状态文件 `rec_state`（格式 `startMs`，只存会话开始时间；兼容旧版 `state|startMs|...`，旧暂停会话不恢复）：**无暂停，路径记录一定是一整段，计时=当前-会话开始，大退/被杀也算时间**；服务被杀后 `START_STICKY` 重启时按 startMs 恢复采样，继续向同一文件追加，**记录不中断、数据不丢**；重进应用从文件拉回全量点与开始时间恢复会话（服务未重启时先恢复采样）
   - 首次启动请求精确位置权限与电池优化白名单（`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`，失败不阻塞）；Android 13+ 请求通知权限
-  - **服务仅"记录中"运行**：暂停时持久化段时长后 `stopSelf()`（通知消失、零定位请求），恢复时重新拉起前台服务；定位频率由 Dart 按 app 前后台通过 `setMode` 动作切换（前台 1s / 后台 10s，后台不推位置给蓝点）
+  - **服务仅"记录中"运行**：空闲时服务停止、通知消失；定位频率由 Dart 按 app 前后台通过 `setMode` 动作切换（前台 1s / 后台 5s，后台不推位置给蓝点）；**前台模式每次定位都推实时位置到位置通道（与采样解耦，蓝点/实时速度每秒更新）**
 - UI 在地图页内（**没有独立记录页**）：
-  - 左上角按钮：空闲=开始记录（红点图标），记录中/暂停=停止并弹出保存
-  - 右上角信息条：状态点、记录时长（段起始随状态文件持久化，大退不归零）、已记录里程、实时速度（前台每秒位置差计算，非采样点）、暂停/继续按钮
-  - 记录轨迹以橙色线实时绘制在地图上；蓝点实时位置：**空闲/暂停用 geolocator 流（仅前台订阅，记录中停用以避免双 GPS 请求）；记录中（前台）用前台服务推送的实时位置；暂停/停止后以服务最后位置兜底不消失**；**添加地点模式下点击蓝点=在当前位置添加地点**；右下角按钮=回到我的位置并把地图方向复位正北（双指旋转已启用）
+  - 左上角按钮：空闲=开始记录（红点图标），记录中=停止并弹出保存
+  - 右上角信息条：状态点、记录时长（=当前-会话开始，大退不归零）、已记录里程、实时速度（前台每秒位置差计算，非采样点）
+  - 记录轨迹以橙色线实时绘制在地图上；蓝点实时位置：**记录中 geolocator 保持订阅（含后台，GPS 热、回前台不冷启动），未记录时进后台延迟 60s 再取消订阅（快速切回仍可用）、回前台重订阅并先以系统最后位置兜底；蓝点取 geolocator 与服务实时位置两源中定位时间最新者**；**添加地点模式下点击蓝点=在当前位置添加地点**；右下角按钮=回到我的位置并把地图方向复位正北（双指旋转已启用）
   - 编辑模式下隐藏记录浮层防遮挡
 - 停止后保存对话框：选择/新建行程、轨迹名、说明、附图，存为该行程一条 trk（`showRecordSaveDialog`，在 dialogs.dart）
 

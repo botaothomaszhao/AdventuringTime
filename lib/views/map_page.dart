@@ -69,13 +69,15 @@ class _MapPageState extends ConsumerState<MapPage>
   final Map<String, List<LatLng>> _translateOrig = {};
   String? _pendingTripId; // 添加地点模式的目标行程（从行程弹窗进入时预选）
   DiskCachedTileProvider? _tileProvider;
-  LatLng? _myPos; // 实时定位点（空闲/暂停时 geolocator 流，仅前台订阅）
+  LatLng? _myPos; // 实时定位点（geolocator 流，仅前台订阅）
+  DateTime? _myPosTime; // geolocator 定位时间
   LatLng? _livePos; // 记录中前台服务实时位置
   DateTime? _livePosTime; // 实时位置定位时间
   double? _liveSpeedMps; // 实时速度（每秒位置差计算，仅记录中）
   StreamSubscription<Position>? _posSub;
   StreamSubscription<RawPoint>? _liveSub;
   bool _locPermissionOk = false;
+  Timer? _bgCancelTimer; // 未记录进后台延迟取消 geolocator 的定时器
   int _activePointers = 0; // 地图上当前按下的触点数量
 
   static const _palette = [
@@ -104,28 +106,45 @@ class _MapPageState extends ConsumerState<MapPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _bgCancelTimer?.cancel();
     _posSub?.cancel();
     _liveSub?.cancel();
     super.dispose();
   }
 
-  /// 前后台切换：前台恢复定位（服务 1s、geolocator 蓝点），后台降频/停止定位。
+  /// 前后台切换：前台恢复定位（服务 1s、geolocator 蓝点）；后台记录中 geolocator
+  /// 保持（GPS 热，回前台蓝点不冷启动），未记录时延迟一段时间再取消（快速切回仍可用）。
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!Platform.isAndroid) return;
     if (state == AppLifecycleState.resumed) {
+      _bgCancelTimer?.cancel();
+      _bgCancelTimer = null;
       LocationService.setMode('foreground');
-      if (_locPermissionOk && _posSub == null) _subscribeGeo();
+      // 前台期间 geolocator 持续订阅保持 GPS 热（仅未记录进后台超时后取消）；
+      // 回前台若被取消则重订阅并先用系统最后位置兜底
+      if (_locPermissionOk && _posSub == null) {
+        _subscribeGeo();
+        _seedLastKnownPosition();
+      }
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
       LocationService.setMode('background');
-      _posSub?.cancel();
-      _posSub = null;
+      _bgCancelTimer?.cancel();
+      _bgCancelTimer = null;
+      final recording = ref.read(recordingProvider).status == RecordStatus.recording;
+      if (recording) return; // 记录中保持 geolocator，回前台不冷启动
+      // 未记录：延迟 60s 再取消订阅，短时间内切回仍可直接使用
+      _bgCancelTimer = Timer(const Duration(seconds: 60), () {
+        if (!mounted) return;
+        _posSub?.cancel();
+        _posSub = null;
+      });
     }
   }
 
-  /// 蓝点：请求定位权限并订阅实时位置。空闲/暂停时用 geolocator 流；
+  /// 蓝点：请求定位权限并订阅实时位置。空闲用 geolocator 流；
   /// 记录中（前台）用前台服务推送的实时位置。
   Future<void> _initMyLocation() async {
     if (!await LocationService.ensureLocationPermission()) return;
@@ -148,52 +167,66 @@ class _MapPageState extends ConsumerState<MapPage>
       _livePosTime = p.time;
       if (prev != null && prevT != null) {
         final dt = p.time.difference(prevT).inMilliseconds / 1000.0;
-        // 间隔过短（抖动）或过大（暂停/后台恢复）时不更新速度
+        // 间隔过短（抖动）或过大（后台恢复/无信号）时不更新速度
         _liveSpeedMps = (dt >= 0.3 && dt <= 10) ? haversineM(prev, p.latLng) / dt : null;
       }
     });
   }
 
-  /// 仅前台且已授权时才订阅 geolocator 蓝点流；先取消旧订阅防泄漏。
+  /// 订阅 geolocator 蓝点流（仅前台调用）；先取消旧订阅防泄漏。
   void _subscribeGeo() {
-    if (!_locPermissionOk ||
-        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
-      return;
-    }
     _posSub?.cancel();
     _posSub =
         Geolocator.getPositionStream(
           locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.medium,
-            distanceFilter: 10,
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 5,
           ),
         ).listen((p) {
-          if (mounted) setState(() => _myPos = LatLng(p.latitude, p.longitude));
+          if (mounted) {
+            setState(() {
+              _myPos = LatLng(p.latitude, p.longitude);
+              _myPosTime = p.timestamp;
+            });
+          }
         });
   }
 
-  /// 蓝点实时位置：记录中用服务位置流；空闲/暂停优先 geolocator 实时位置，
-  /// 拿不到时用服务最后位置兜底，避免切换瞬间蓝点消失。
-  LatLng? _currentBluePos(RecordState? rec) {
-    final live = rec != null && rec.status == RecordStatus.recording ? _livePos : null;
-    return live ?? _myPos ?? _livePos;
+  /// 订阅后立即用系统最后已知位置兜底，避免回前台等 GPS 冷启动期间蓝点卡在旧位。
+  Future<void> _seedLastKnownPosition() async {
+    if (!_locPermissionOk || !mounted) return;
+    final p = await Geolocator.getLastKnownPosition();
+    if (p != null && mounted) {
+      setState(() {
+        _myPos = LatLng(p.latitude, p.longitude);
+        _myPosTime = p.timestamp;
+      });
+    }
+  }
+
+  /// 蓝点实时位置：取两源中定位时间更新者——记录中服务 fix 正常时用服务位置；
+  /// 服务刚启动/从后台回来时 geolocator 前台实时位置更新则用之，避免回跳与冷启动等待。
+  LatLng? _currentBluePos() {
+    if (_myPos == null) return _livePos;
+    if (_livePos == null) return _myPos;
+    final mt = _myPosTime;
+    final lt = _livePosTime;
+    if (mt == null) return _livePos;
+    if (lt == null) return _myPos;
+    return mt.isAfter(lt) ? _myPos : _livePos;
   }
 
   /// 添加地点模式下点击蓝点：在当前位置添加地点。
   void _onMyPosTap() {
     if (_mode != _EditMode.addPlace) return;
-    final p = _currentBluePos(
-      Platform.isAndroid ? ref.read(recordingProvider) : null,
-    );
+    final p = _currentBluePos();
     if (p == null) return;
     _addWaypointAt(p);
   }
 
   /// 相机回到我的位置并把地图方向复位到正北。
   void _centerOnMyPos() {
-    final p = _currentBluePos(
-      Platform.isAndroid ? ref.read(recordingProvider) : null,
-    );
+    final p = _currentBluePos();
     if (p == null) {
       ScaffoldMessenger.of(
         context,
@@ -218,7 +251,7 @@ class _MapPageState extends ConsumerState<MapPage>
     _mapCtrl.move(_mapCtrl.camera.center, (z - 1).clamp(_minZoom, _maxZoom));
   }
 
-  /// 左上角记录按钮：空闲时开始记录，记录中/暂停时停止并保存。
+  /// 左上角记录按钮：空闲时开始记录，记录中时停止并保存。
   Future<void> _onRecordButton(RecordState rec) async {
     if (rec.status == RecordStatus.idle) {
       if (!await LocationService.ensureLocationPermission()) {
@@ -996,21 +1029,6 @@ class _MapPageState extends ConsumerState<MapPage>
     );
     // 记录会话状态（仅 Android，Windows 不 watch 避免调用原生通道）
     final rec = Platform.isAndroid ? ref.watch(recordingProvider) : null;
-    // 记录中停用 geolocator 蓝点流（位置由前台服务喂），避免双 GPS 请求与暂停时的旧位置跳变
-    if (Platform.isAndroid) {
-      ref.listen(recordingProvider, (prev, next) {
-        final wasRec = prev?.status == RecordStatus.recording;
-        final isRec = next.status == RecordStatus.recording;
-        if (wasRec != isRec) {
-          if (isRec) {
-            _posSub?.cancel();
-            _posSub = null;
-          } else if (_locPermissionOk && _posSub == null) {
-            _subscribeGeo();
-          }
-        }
-      });
-    }
     // 绘制模式下保留拖动/缩放，但关闭双击缩放（双击用于结束绘制）；整体平移禁用缩放防误触
     var flags = InteractiveFlag.all;
     if (_mode == _EditMode.translatePath) {
@@ -1130,14 +1148,6 @@ class _MapPageState extends ConsumerState<MapPage>
             child: _RecordHud(
               rec: rec,
               speedMps: _liveSpeedMps,
-              onPauseResume: () {
-                final n = ref.read(recordingProvider.notifier);
-                if (rec.status == RecordStatus.recording) {
-                  n.pause();
-                } else {
-                  n.resume();
-                }
-              },
             ),
           ),
         if (_selected != null)
@@ -1343,8 +1353,8 @@ class _MapPageState extends ConsumerState<MapPage>
       );
     }
 
-    // 蓝点：我的实时位置（仅 Android；记录中随采样点移动）
-    final bluePos = _currentBluePos(rec);
+    // 蓝点：我的实时位置（仅 Android）
+    final bluePos = _currentBluePos();
     if (Platform.isAndroid && bluePos != null) {
       layers.add(
         MarkerLayer(
@@ -1874,16 +1884,14 @@ class _SelectedCard extends StatelessWidget {
   }
 }
 
-/// 记录中的右上角信息条：状态、时长、里程、暂停/继续。
+/// 记录中的右上角信息条：状态、时长、里程、实时速度。
 class _RecordHud extends StatefulWidget {
   final RecordState rec;
   final double? speedMps; // 实时速度（每秒位置差计算）
-  final VoidCallback onPauseResume;
 
   const _RecordHud({
     required this.rec,
     required this.speedMps,
-    required this.onPauseResume,
   });
 
   @override
@@ -1905,12 +1913,9 @@ class _RecordHudState extends State<_RecordHud> {
     super.dispose();
   }
 
-  /// 显示时长：累计记录时长 + 当前段活跃时长；暂停时只有累计值（停表）。
+  /// 显示时长：计时=当前-会话开始（无暂停，路径一定是一整段，大退期间也算时间）。
   String _fmtDuration(RecordState rec) {
-    final base = Duration(seconds: rec.recordingSeconds);
-    final d = rec.activeSince == null
-        ? base
-        : base + DateTime.now().difference(rec.activeSince!);
+    final d = DateTime.now().difference(rec.startedAt ?? DateTime.now());
     String two(int v) => v.toString().padLeft(2, '0');
     return '${two(d.inHours)}:${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}';
   }
@@ -1922,17 +1927,11 @@ class _RecordHudState extends State<_RecordHud> {
       elevation: 3,
       borderRadius: BorderRadius.circular(20),
       child: Padding(
-        padding: const EdgeInsets.only(left: 12, right: 4, top: 4, bottom: 4),
+        padding: const EdgeInsets.only(left: 12, right: 8, top: 4, bottom: 4),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.circle,
-              size: 10,
-              color: rec.status == RecordStatus.recording
-                  ? Colors.red
-                  : Colors.orange,
-            ),
+            const Icon(Icons.circle, size: 10, color: Colors.red),
             const SizedBox(width: 6),
             Text(_fmtDuration(rec), style: const TextStyle(fontSize: 13)),
             const SizedBox(width: 10),
@@ -1942,22 +1941,8 @@ class _RecordHudState extends State<_RecordHud> {
             ),
             const SizedBox(width: 8),
             Text(
-              formatSpeedKmh(
-                rec.status == RecordStatus.recording
-                    ? widget.speedMps
-                    : null,
-              ),
+              formatSpeedKmh(widget.speedMps),
               style: const TextStyle(fontSize: 13),
-            ),
-            IconButton(
-              icon: Icon(
-                rec.status == RecordStatus.recording
-                    ? Icons.pause
-                    : Icons.play_arrow,
-                size: 20,
-              ),
-              visualDensity: VisualDensity.compact,
-              onPressed: widget.onPauseResume,
             ),
           ],
         ),
