@@ -22,9 +22,10 @@ import 'widgets.dart';
 /// 地图页：图层（地点/长期地点/路径/人生轨迹线）、点击弹卡、增删改、
 /// 手绘路径与顶点编辑、整体平移、地址搜索、行程标记。
 class MapPage extends ConsumerStatefulWidget {
-  final String personId;
+  /// 可为空：无人物时地图照常显示（不含任何人的数据），操作走提示。
+  final String? personId;
 
-  const MapPage({super.key, required this.personId});
+  const MapPage({super.key, this.personId});
 
   @override
   ConsumerState<MapPage> createState() => _MapPageState();
@@ -251,8 +252,26 @@ class _MapPageState extends ConsumerState<MapPage>
     _mapCtrl.move(_mapCtrl.camera.center, (z - 1).clamp(_minZoom, _maxZoom));
   }
 
+  /// 无人物时地图操作不可用，提示先新建人物；有则执行。
+  void _guardPerson(VoidCallback action) {
+    if (widget.personId == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('需要先新建人物')));
+      return;
+    }
+    action();
+  }
+
   /// 左上角记录按钮：空闲时开始记录，记录中时停止并保存。
   Future<void> _onRecordButton(RecordState rec) async {
+    final pid = widget.personId;
+    if (pid == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('需要先新建人物')));
+      return;
+    }
     if (rec.status == RecordStatus.idle) {
       if (!await LocationService.ensureLocationPermission()) {
         if (mounted) {
@@ -280,7 +299,7 @@ class _MapPageState extends ConsumerState<MapPage>
       }
       final ok = await showRecordSaveDialog(
         context,
-        personId: widget.personId,
+        personId: pid,
         points: pts,
       );
       if (ok && mounted) {
@@ -326,8 +345,9 @@ class _MapPageState extends ConsumerState<MapPage>
 
   /// 点击位置命中检测：路径优先（路径有编辑操作），其次行程连接线；未命中则关闭卡片。
   void _openAt(LatLng tap) {
+    final pid = widget.personId;
     final d = _personData();
-    if (d == null) return;
+    if (d == null || pid == null) return;
     const thresh = 10.0;
     // 路径优先
     for (final t in d.trips) {
@@ -339,7 +359,7 @@ class _MapPageState extends ConsumerState<MapPage>
                 p.points[i].latLng,
               ) <=
               thresh) {
-            _selectPath(p, t.meta.id, widget.personId);
+            _selectPath(p, t.meta.id, pid);
             return;
           }
         }
@@ -361,7 +381,7 @@ class _MapPageState extends ConsumerState<MapPage>
     if (bestTrip != null && bestTripDist <= thresh) {
       final t = d.tripById(bestTrip);
       if (t != null) {
-        _selectTrip(t, widget.personId);
+        _selectTrip(t, pid);
         return;
       }
     }
@@ -382,7 +402,8 @@ class _MapPageState extends ConsumerState<MapPage>
       _toggles.putIfAbsent(personId, _LayerToggles.new);
 
   Future<void> _startAddTrip() async {
-    final form = await showTripDialog(context, personId: widget.personId);
+    final pid = widget.personId!;
+    final form = await showTripDialog(context, personId: pid);
     if (form == null) return;
     final now = DateTime.now();
     final trip = Trip(
@@ -399,21 +420,24 @@ class _MapPageState extends ConsumerState<MapPage>
     );
     form.applyTo(trip);
     await ref
-        .read(personDataProvider(widget.personId).notifier)
+        .read(personDataProvider(pid).notifier)
         .createTrip(trip);
   }
 
   // ---------- 数据 ----------
 
   (List<Person>, List<(String?, GpxFile)>) _peopleData() {
+    final pid = widget.personId;
     final all = ref
         .watch(peopleProvider)
         .maybeWhen(data: (l) => l, orElse: () => <Person>[]);
-    final people = all.where((p) => p.id == widget.personId).toList();
+    final people = pid == null ? <Person>[] : all.where((p) => p.id == pid).toList();
     final containers = <(String?, GpxFile)>[];
-    final d = ref
-        .watch(personDataProvider(widget.personId))
-        .maybeWhen(data: (d) => d, orElse: () => null);
+    final d = pid == null
+        ? null
+        : ref
+            .watch(personDataProvider(pid))
+            .maybeWhen(data: (d) => d, orElse: () => null);
     if (d != null) {
       for (final t in d.trips) {
         containers.add((t.meta.id, t.gpx));
@@ -439,9 +463,13 @@ class _MapPageState extends ConsumerState<MapPage>
     for (final (_, g) in _allContainers(personId)) ...g.paths,
   ];
 
-  PersonData? _personData() => ref
-      .read(personDataProvider(widget.personId))
-      .maybeWhen(data: (d) => d, orElse: () => null);
+  PersonData? _personData() {
+    final pid = widget.personId;
+    if (pid == null) return null;
+    return ref
+        .read(personDataProvider(pid))
+        .maybeWhen(data: (d) => d, orElse: () => null);
+  }
 
   // ---------- 选中弹卡 ----------
 
@@ -726,10 +754,12 @@ class _MapPageState extends ConsumerState<MapPage>
   /// 落点新增：搜索得到的用搜索词作默认名称；对话框打开后异步反向地理编码填充。
   Future<void> _addWaypointAt(LatLng latlng, {String? defaultName}) async {
     if (!mounted) return;
+    final pid = widget.personId;
+    if (pid == null) return;
     final tripId = _pendingTripId;
     final form = await showWaypointDialog(
       context,
-      personId: widget.personId,
+      personId: pid,
       initialPos: latlng,
       defaultName: defaultName,
       tripId: tripId,
@@ -760,7 +790,7 @@ class _MapPageState extends ConsumerState<MapPage>
       updatedAt: now,
     );
     form.applyTo(w);
-    final notifier = ref.read(personDataProvider(widget.personId).notifier);
+    final notifier = ref.read(personDataProvider(pid).notifier);
     if (form.isEvent) {
       await notifier.saveLifeWaypoint(w);
     } else {
@@ -803,13 +833,15 @@ class _MapPageState extends ConsumerState<MapPage>
   }
 
   Future<void> _finishDrawPath() async {
+    final pid = widget.personId;
+    if (pid == null) return;
     if (_draftPoints.length < 2) {
       if (mounted) setState(() => _draftPoints.clear());
       return;
     }
     final trips = List<TripBundle>.of(_personData()?.trips ?? const []);
     if (trips.isEmpty) {
-      final form = await showTripDialog(context, personId: widget.personId);
+      final form = await showTripDialog(context, personId: pid);
       if (form == null) {
         if (mounted)
           setState(() {
@@ -827,7 +859,7 @@ class _MapPageState extends ConsumerState<MapPage>
       );
       form.applyTo(trip);
       await ref
-          .read(personDataProvider(widget.personId).notifier)
+          .read(personDataProvider(pid).notifier)
           .createTrip(trip);
       trips.add(TripBundle(meta: trip, gpx: GpxFile()));
     }
@@ -840,7 +872,7 @@ class _MapPageState extends ConsumerState<MapPage>
         });
       return;
     }
-    final form = await showPathDialog(context, personId: widget.personId);
+    final form = await showPathDialog(context, personId: pid);
     if (!mounted) return;
     final now = DateTime.now();
     final path = PathData(
@@ -854,7 +886,7 @@ class _MapPageState extends ConsumerState<MapPage>
       updatedAt: now,
     );
     await ref
-        .read(personDataProvider(widget.personId).notifier)
+        .read(personDataProvider(pid).notifier)
         .saveTripPath(trip.id, path);
     if (mounted)
       setState(() {
@@ -901,9 +933,11 @@ class _MapPageState extends ConsumerState<MapPage>
 
   Future<void> _savePath(PathData p) async {
     final key = _editPathKey()!;
+    final pid = widget.personId;
+    if (pid == null) return;
     p.updatedAt = DateTime.now();
     await ref
-        .read(personDataProvider(widget.personId).notifier)
+        .read(personDataProvider(pid).notifier)
         .saveTripPath(key.$1, p);
   }
 
@@ -979,14 +1013,17 @@ class _MapPageState extends ConsumerState<MapPage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    ref.listen(mapPageActionProvider(widget.personId), (prev, next) {
-      if (prev == null) return;
-      if (next.requestId > prev.requestId && next.focus != null) {
-        _mapCtrl.move(next.focus!, next.zoom);
-      } else if (next.requestId > prev.requestId && next.showLayers) {
-        _showLayerPanel();
-      }
-    });
+    final pid = widget.personId;
+    if (pid != null) {
+      ref.listen(mapPageActionProvider(pid), (prev, next) {
+        if (prev == null) return;
+        if (next.requestId > prev.requestId && next.focus != null) {
+          _mapCtrl.move(next.focus!, next.zoom);
+        } else if (next.requestId > prev.requestId && next.showLayers) {
+          _showLayerPanel();
+        }
+      });
+    }
 
     final (people, containers) = _peopleData();
     final tileUrl = ref
@@ -1537,20 +1574,21 @@ class _MapPageState extends ConsumerState<MapPage>
       IconButton(
         icon: const Icon(Icons.location_on_outlined),
         tooltip: '添加地点',
-        onPressed: () => setState(() => _mode = _EditMode.addPlace),
+        onPressed: () =>
+            _guardPerson(() => setState(() => _mode = _EditMode.addPlace)),
       ),
       IconButton(
         icon: const Icon(Icons.timeline),
         tooltip: '绘制路径',
-        onPressed: () => setState(() {
+        onPressed: () => _guardPerson(() => setState(() {
           _mode = _EditMode.drawPath;
           _draftPoints.clear();
-        }),
+        })),
       ),
       IconButton(
         icon: const Icon(Icons.luggage_outlined),
         tooltip: '新建行程',
-        onPressed: _startAddTrip,
+        onPressed: () => _guardPerson(_startAddTrip),
       ),
     ];
   }
@@ -1626,20 +1664,22 @@ class _MapPageState extends ConsumerState<MapPage>
 
   Future<void> _editPathInfo(PathData p) async {
     final key = _editPathKey()!;
+    final pid = widget.personId;
+    if (pid == null) return;
     final before = List<String>.of(p.mediaIds);
     final form = await showPathDialog(
       context,
-      personId: widget.personId,
+      personId: pid,
       existing: p,
-      onDelete: () => _deletePathFromDialog(p, key.$1, widget.personId),
+      onDelete: () => _deletePathFromDialog(p, key.$1, pid),
     );
     if (form == null) return;
     form.applyTo(p);
     p.updatedAt = DateTime.now();
     await ref
-        .read(personDataProvider(widget.personId).notifier)
+        .read(personDataProvider(pid).notifier)
         .saveTripPath(key.$1, p);
-    await cleanupRemovedMedia(ref, widget.personId, before, p.mediaIds);
+    await cleanupRemovedMedia(ref, pid, before, p.mediaIds);
   }
 
   /// 路径编辑对话框内的删除：确认后删除并关闭对话框与编辑模式。
@@ -1674,18 +1714,20 @@ class _MapPageState extends ConsumerState<MapPage>
 
   Future<void> _deletePathFromEdit(PathData p) async {
     final key = _editPathKey()!;
+    final pid = widget.personId;
+    if (pid == null) return;
     final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
     if (!ok) return;
     await ref
-        .read(personDataProvider(widget.personId).notifier)
+        .read(personDataProvider(pid).notifier)
         .deleteTripPath(key.$1, p.id);
     for (final id in p.mediaIds) {
       await deleteMediaIfUnused(
         ref,
-        widget.personId,
+        pid,
         id,
-        waypoints: _allWaypoints(widget.personId),
-        paths: _allPaths(widget.personId),
+        waypoints: _allWaypoints(pid),
+        paths: _allPaths(pid),
       );
     }
     if (mounted) {
@@ -1697,7 +1739,7 @@ class _MapPageState extends ConsumerState<MapPage>
   }
 
   void _showLayerPanel() {
-    final current = _togglesOf(widget.personId);
+    final current = _togglesOf(widget.personId!);
     showModalBottomSheet(
       context: context,
       builder: (c) => StatefulBuilder(

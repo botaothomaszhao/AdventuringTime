@@ -136,14 +136,15 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
   return LifePathResult(segs, recorded, estimated);
 }
 
-/// 行程内部节点：路径（首/尾点）与地点；顺序优先 orderIds，否则按时间。
+/// 行程内部节点：路径（首/尾点）与地点；顺序与行程详情页一致——按日期分组、
+/// 组间日期升序，组内 orderIds 覆盖该组全部项时按自定义顺序，否则按时间。
 /// 起点长期地点置于最前，相邻节点间连虚线；路径仅连首尾，不重复画路径；最后连回终点。
 /// 返回连接段序列与行程首末点（供轨迹线相邻连接）。
 ({List<LifeSeg> segs, LatLng? first, LatLng? last}) _tripInner(
     TripBundle t, Waypoint? Function(String?) findWp) {
   final startWp = findWp(t.meta.startEventId);
   final endWp = findWp(t.meta.endEventId);
-  final nodes = <_TripNode>[];
+  var nodes = <_TripNode>[];
   for (final p in t.gpx.paths) {
     if (p.points.isEmpty) continue;
     nodes.add(_TripNode(path: p));
@@ -151,13 +152,34 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
   for (final w in t.gpx.waypoints) {
     nodes.add(_TripNode(wp: w));
   }
+  // 排序与行程详情页一致：按日期分组、组间日期升序（未标日期最后）、
+  // 组内 orderIds 覆盖该组全部项时按自定义顺序，否则按时间。
   final orderIds = t.gpx.orderIds;
-  final covered = orderIds.isNotEmpty && nodes.every((n) => orderIds.contains(n.id));
-  if (covered) {
-    nodes.sort((a, b) => orderIds.indexOf(a.id).compareTo(orderIds.indexOf(b.id)));
-  } else {
-    nodes.sort((a, b) => a.time.compareTo(b.time));
+  int? dayOf(_TripNode n) {
+    final tm = n.path != null ? n.path!.points.first.time : n.wp!.time;
+    if (tm == null) return null;
+    return tm.year * 10000 + tm.month * 100 + tm.day;
   }
+  final byDay = <int?, List<_TripNode>>{};
+  for (final n in nodes) {
+    byDay.putIfAbsent(dayOf(n), () => []).add(n);
+  }
+  final dayKeys = byDay.keys.toList()..sort((a, b) {
+        if (a == null) return b == null ? 0 : 1;
+        if (b == null) return -1;
+        return a.compareTo(b);
+      });
+  final ordered = <_TripNode>[];
+  for (final k in dayKeys) {
+    final group = byDay[k]!;
+    if (orderIds.isNotEmpty && group.every((n) => orderIds.contains(n.id))) {
+      group.sort((a, b) => orderIds.indexOf(a.id).compareTo(orderIds.indexOf(b.id)));
+    } else {
+      group.sort((a, b) => a.time.compareTo(b.time));
+    }
+    ordered.addAll(group);
+  }
+  nodes = ordered;
   final segs = <LifeSeg>[];
   LatLng? prev = startWp?.latLng;
   for (final n in nodes) {

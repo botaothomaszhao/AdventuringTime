@@ -30,7 +30,7 @@
 
 ```bash
 flutter analyze lib            # 静态检查（仅看 error；driver_main 的两个 future 警告为已知）
-flutter test                   # 41 个测试，须全绿后提交
+flutter test                   # 42 个测试，须全绿后提交
 flutter build windows --release
 flutter build apk --release    # 安卓 release（debug key 签名）；成功后 push 到手机（文件名带版本号，如 adventuring_time_1.1.3.apk）：
 # & D:\Android\sdk\platform-tools\adb.exe push build\app\outputs\flutter-apk\app-release.apk /sdcard/Download/adventuring_time_<versionName>.apk

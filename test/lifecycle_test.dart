@@ -251,6 +251,51 @@ void main() {
       expect(r.segs.single.to, const LatLng(1, 0));
     });
 
+    test('此前日期新增项按日期分组排在前面，连线顺序与详情页一致', () {
+      final t = TripBundle(
+        meta: Trip(
+          id: 't',
+          name: 't',
+          startDate: DateTime.utc(2005, 1, 1),
+          createdAt: DateTime.utc(2005, 1, 1),
+          updatedAt: DateTime.utc(2005, 1, 1),
+        ),
+        gpx: GpxFile(
+          orderIds: ['w2', 'w1', 'w3'],
+          waypoints: [
+            Waypoint(
+              id: 'w1',
+              name: 'w1',
+              latLng: const LatLng(1, 0),
+              time: DateTime.utc(2005, 1, 2),
+              createdAt: DateTime.utc(2005, 1, 1),
+              updatedAt: DateTime.utc(2005, 1, 1),
+            ),
+            Waypoint(
+              id: 'w2',
+              name: 'w2',
+              latLng: const LatLng(2, 0),
+              time: DateTime.utc(2005, 1, 1),
+              createdAt: DateTime.utc(2005, 1, 1),
+              updatedAt: DateTime.utc(2005, 1, 1),
+            ),
+            Waypoint(
+              id: 'w3',
+              name: 'w3',
+              latLng: const LatLng(3, 0),
+              time: DateTime.utc(2004, 12, 31),
+              createdAt: DateTime.utc(2005, 1, 1),
+              updatedAt: DateTime.utc(2005, 1, 1),
+            ),
+          ],
+        ),
+      );
+      final r = buildLifePath([], [t]);
+      // w3 为此前日期，虽在 orderIds 末尾，仍按日期分组排最前：w3→w2→w1
+      expect(r.segs.map((s) => s.from.latitude), [3.0, 2.0]);
+      expect(r.segs.last.to.latitude, 1.0);
+    });
+
     test('行程无路径无地点：仅起点终点长期地点连成一段', () {
       final s = ev('s', DateTime.utc(2000, 1, 1), const LatLng(0, 0));
       final e = ev('e', DateTime.utc(2010, 1, 1), const LatLng(0, 1));

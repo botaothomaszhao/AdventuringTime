@@ -66,11 +66,7 @@ class _PersonHomeState extends ConsumerState<PersonHome>
     final notifier = ref.read(peopleProvider.notifier);
     switch (v) {
       case 'add':
-        final r = await showPersonDialog(context);
-        if (r == null) return;
-        final (name, bio) = r;
-        final person = await notifier.addPerson(name, bio: bio);
-        ref.read(currentPersonIdProvider.notifier).select(person.id);
+        await _addNewPerson();
       case 'edit':
         final me = people.firstWhere((p) => p.id == currentId);
         final r = await showPersonDialog(context, existing: me);
@@ -95,6 +91,16 @@ class _PersonHomeState extends ConsumerState<PersonHome>
       default:
         ref.read(currentPersonIdProvider.notifier).select(v);
     }
+  }
+
+  Future<void> _addNewPerson() async {
+    final r = await showPersonDialog(context);
+    if (r == null) return;
+    final (name, bio) = r;
+    final person = await ref
+        .read(peopleProvider.notifier)
+        .addPerson(name, bio: bio);
+    ref.read(currentPersonIdProvider.notifier).select(person.id);
   }
 
   Future<void> _exportPerson(BuildContext context, String personId) async {
@@ -217,16 +223,17 @@ class _PersonHomeState extends ConsumerState<PersonHome>
                 if (current != null) ...[
                   const PopupMenuItem(value: 'edit', child: Text('编辑资料')),
                   const PopupMenuItem(value: 'delete', child: Text('删除当前人物')),
-                  const PopupMenuDivider(),
+                ],
+                const PopupMenuDivider(),
+                if (current != null)
                   const PopupMenuItem(
                     value: 'export',
                     child: Text('导出人物整包 (.atrip)'),
                   ),
-                  const PopupMenuItem(
-                    value: 'import',
-                    child: Text('导入人物整包 (.atrip)'),
-                  ),
-                ],
+                const PopupMenuItem(
+                  value: 'import',
+                  child: Text('导入人物整包 (.atrip)'),
+                ),
               ],
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -252,9 +259,17 @@ class _PersonHomeState extends ConsumerState<PersonHome>
             IconButton(
               icon: const Icon(Icons.layers_outlined),
               tooltip: '图层开关',
-              onPressed: () => ref
-                  .read(mapPageActionProvider(currentId!).notifier)
-                  .requestShowLayers(),
+              onPressed: () {
+                if (currentId == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('需要先新建人物')),
+                  );
+                  return;
+                }
+                ref
+                    .read(mapPageActionProvider(currentId).notifier)
+                    .requestShowLayers();
+              },
             ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
@@ -263,38 +278,75 @@ class _PersonHomeState extends ConsumerState<PersonHome>
           ),
         ],
       ),
-      body: current == null
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text('还没有人物，点左上角"选择人物"→新增人物'),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: () async {
-                      final r = await showPersonDialog(context);
-                      if (r == null) return;
-                      final (name, bio) = r;
-                      final person = await ref
-                          .read(peopleProvider.notifier)
-                          .addPerson(name, bio: bio);
-                      ref
-                          .read(currentPersonIdProvider.notifier)
-                          .select(person.id);
-                    },
-                    child: const Text('新增人物'),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          IndexedStack(
+            index: _tab.index,
+            children: [
+              MapPage(personId: current?.id),
+              current == null
+                  ? _NoPersonPanel(
+                      onCreate: _addNewPerson,
+                      onImport: () => _importPerson(context),
+                    )
+                  : TimelinePage(personId: current.id),
+              current == null
+                  ? _NoPersonPanel(
+                      onCreate: _addNewPerson,
+                      onImport: () => _importPerson(context),
+                    )
+                  : StatsPage(personId: current.id),
+            ],
+          ),
+          // 无人物时地图照常显示，顶部浮条提示先新建/导入人物
+          if (current == null && _tab.index == 0)
+            Positioned(
+              top: 12,
+              left: Platform.isAndroid ? 64 : 12,
+              right: 12,
+              child: Material(
+                elevation: 4,
+                borderRadius: BorderRadius.circular(12),
+                color: Theme.of(context).colorScheme.inverseSurface,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
                   ),
-                ],
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '还没有人物，请先新建或导入人物',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Theme.of(context).colorScheme.onInverseSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: _addNewPerson,
+                            child: const Text('新增人物'),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            onPressed: () => _importPerson(context),
+                            child: const Text('导入人物包'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            )
-          : IndexedStack(
-              index: _tab.index,
-              children: [
-                MapPage(personId: current.id),
-                TimelinePage(personId: current.id),
-                StatsPage(personId: current.id),
-              ],
             ),
+        ],
+      ),
       bottomNavigationBar: TabBar(
         controller: _tab,
         tabs: const [
@@ -312,6 +364,41 @@ class _PersonHomeState extends ConsumerState<PersonHome>
             key: ValueKey('tab-stats'),
             icon: Icon(Icons.insights),
             text: '统计',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 无人物时时间线/统计 tab 的居中占位：提示新建或导入人物。
+class _NoPersonPanel extends StatelessWidget {
+  final VoidCallback onCreate;
+  final VoidCallback onImport;
+
+  const _NoPersonPanel({
+    required this.onCreate,
+    required this.onImport,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('还没有人物，请先新建或导入人物'),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FilledButton(onPressed: onCreate, child: const Text('新增人物')),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: onImport,
+                child: const Text('导入人物包'),
+              ),
+            ],
           ),
         ],
       ),
