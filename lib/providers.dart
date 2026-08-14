@@ -228,6 +228,7 @@ class PersonDataNotifier extends FamilyAsyncNotifier<PersonData, String> {
       g.waypoints[idx] = w;
     } else {
       g.waypoints.add(w);
+      _appendOrderIfCovered(g, w.id);
     }
     await _commit(next);
   }
@@ -248,6 +249,7 @@ class PersonDataNotifier extends FamilyAsyncNotifier<PersonData, String> {
       g.paths[idx] = path;
     } else {
       g.paths.add(path);
+      _appendOrderIfCovered(g, path.id);
     }
     await _commit(next);
   }
@@ -258,6 +260,20 @@ class PersonDataNotifier extends FamilyAsyncNotifier<PersonData, String> {
     g.paths.removeWhere((x) => x.id == pathId);
     g.orderIds.remove(pathId);
     await _commit(next);
+  }
+
+  /// 新增地点/路径后，若 orderIds 已覆盖全部旧项，把新 id 追加到末尾：
+  /// 保持已调好的自定义顺序，新项落在那一天已有项之后。
+  void _appendOrderIfCovered(GpxFile g, String newId) {
+    final ids = g.orderIds;
+    final oldCount = g.waypoints.length + g.paths.length - 1;
+    if (ids.isNotEmpty &&
+        ids.length == oldCount &&
+        ids.every((id) =>
+            g.waypoints.any((x) => x.id == id) ||
+            g.paths.any((x) => x.id == id))) {
+      ids.add(newId);
+    }
   }
 
   /// 行程内路径/地点按天手动调序：itemId 上移/下移一位（同一天内）。
@@ -310,32 +326,6 @@ class PersonDataNotifier extends FamilyAsyncNotifier<PersonData, String> {
       }
     }
     g.orderIds = ids;
-    await _commit(next);
-  }
-
-  // ---------- 事件移动 ----------
-
-  /// 事件移入行程：从 life.gpx 移除，加入目标行程 gpx（数据自身不变）。
-  Future<void> moveEventToTrip(String eventId, String tripId) async {
-    final next = d.copy();
-    final w = next.life.waypoints.firstWhere((x) => x.id == eventId);
-    next.life.waypoints.remove(w);
-    _tripGpx(next, tripId).waypoints.add(w);
-    await _commit(next);
-  }
-
-  /// 事件移出行程：回到 life.gpx。
-  Future<void> moveEventOutOfTrip(String eventId) async {
-    final next = d.copy();
-    for (final t in next.trips) {
-      final idx = t.gpx.waypoints.indexWhere((x) => x.id == eventId);
-      if (idx >= 0) {
-        final w = t.gpx.waypoints.removeAt(idx);
-        t.gpx.orderIds.remove(eventId);
-        next.life.waypoints.add(w);
-        break;
-      }
-    }
     await _commit(next);
   }
 }

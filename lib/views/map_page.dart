@@ -446,9 +446,6 @@ class _MapPageState extends ConsumerState<MapPage>
   // ---------- 选中弹卡 ----------
 
   void _selectWaypoint(Waypoint w, String? tripId, String personId) {
-    final trips = ref
-        .read(personDataProvider(personId))
-        .maybeWhen(data: (d) => d.trips, orElse: () => <TripBundle>[]);
     setState(() {
       _selected = _Selected(
         label: w.name.isEmpty ? '（未命名）' : w.name,
@@ -457,32 +454,6 @@ class _MapPageState extends ConsumerState<MapPage>
         precision: w.timePrecision,
         actions: () {
           return [
-            if (w.isEvent)
-              ListTile(
-                leading: const Icon(Icons.swap_horiz),
-                title: Text(tripId == null ? '移入行程' : '移出行程'),
-                onTap: () async {
-                  final notifier = ref.read(
-                    personDataProvider(personId).notifier,
-                  );
-                  if (tripId == null) {
-                    if (trips.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('还没有行程，先新建一个')),
-                      );
-                      return;
-                    }
-                    final choice = await _pickTrip(trips);
-                    if (choice != null) {
-                      await notifier.moveEventToTrip(w.id, choice.id);
-                      _closeSheet();
-                    }
-                  } else {
-                    await notifier.moveEventOutOfTrip(w.id);
-                    _closeSheet();
-                  }
-                },
-              ),
             ListTile(
               leading: const Icon(Icons.edit_outlined),
               title: const Text('编辑'),
@@ -763,8 +734,8 @@ class _MapPageState extends ConsumerState<MapPage>
       defaultName: defaultName,
       tripId: tripId,
       presetTime: tripId == null
-          ? null
-          : _presetTripTime(_personData()?.tripById(tripId)),
+          ? DateTime.now()
+          : (_presetTripTime(_personData()?.tripById(tripId)) ?? DateTime.now()),
     );
     if (form == null) {
       if (mounted) {

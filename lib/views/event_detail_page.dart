@@ -7,7 +7,7 @@ import '../providers.dart';
 import 'dialogs.dart';
 import 'widgets.dart';
 
-/// 长期地点详情：内联编辑名称/说明/时间，移入移出行程，删除，底部常驻照片墙。
+/// 长期地点详情：内联编辑名称/说明/时间，删除，底部常驻照片墙。
 class EventDetailPage extends ConsumerWidget {
   final String personId;
   final String waypointId;
@@ -164,31 +164,6 @@ class EventDetailPage extends ConsumerWidget {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        leading: const Icon(Icons.swap_horiz),
-                        title: Text(tripId == null ? '移入行程' : '移出行程'),
-                        subtitle: Text(
-                          tripId == null ? '把该长期地点归入某个行程' : '从当前行程移回人生轨迹',
-                        ),
-                        onTap: () async {
-                          if (tripId == null) {
-                            if (d.trips.isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('还没有行程，先新建一个')),
-                              );
-                              return;
-                            }
-                            final choice = await _pickTrip(context, d.trips);
-                            if (choice != null) {
-                              await notifier.moveEventToTrip(w.id, choice.id);
-                            }
-                          } else {
-                            await notifier.moveEventOutOfTrip(w.id);
-                          }
-                        },
-                      ),
                     ],
                   ),
                 ),
@@ -207,23 +182,3 @@ List<Waypoint> _allWaypoints(PersonData d) =>
     [...d.life.waypoints, for (final t in d.trips) ...t.gpx.waypoints];
 
 List<PathData> _allPaths(PersonData d) => [for (final t in d.trips) ...t.gpx.paths];
-
-Future<Trip?> _pickTrip(BuildContext context, List<TripBundle> trips) {
-  return showDialog<Trip>(
-    context: context,
-    builder: (c) => SimpleDialog(
-      title: const Text('选择行程'),
-      children: [
-        for (final t in trips)
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(c, t.meta),
-            child: Text(t.meta.name),
-          ),
-        SimpleDialogOption(
-          onPressed: () => Navigator.pop(c, null),
-          child: const Text('取消'),
-        ),
-      ],
-    ),
-  );
-}

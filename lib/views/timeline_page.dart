@@ -50,7 +50,7 @@ class TimelinePage extends ConsumerWidget {
           itemBuilder: (context, i) {
             final item = items[i];
             if (item.data is Waypoint) {
-              return _waypointTile(context, ref, d, item.data as Waypoint, item.tripId);
+              return _waypointTile(context, ref, item.data as Waypoint, item.tripId);
             }
             return _tripTile(context, ref, item.data as TripBundle);
           },
@@ -59,7 +59,7 @@ class TimelinePage extends ConsumerWidget {
     );
   }
 
-  Widget _waypointTile(BuildContext context, WidgetRef ref, PersonData d, Waypoint w, String? tripId) {
+  Widget _waypointTile(BuildContext context, WidgetRef ref, Waypoint w, String? tripId) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: ListTile(
@@ -75,16 +75,6 @@ class TimelinePage extends ConsumerWidget {
           onSelected: (v) async {
             final notifier = ref.read(personDataProvider(personId).notifier);
             switch (v) {
-              case 'move_in':
-                if (d.trips.isEmpty) {
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(const SnackBar(content: Text('还没有行程，先新建一个')));
-                  return;
-                }
-                final choice = await _pickTrip(context, d.trips);
-                if (choice != null) await notifier.moveEventToTrip(w.id, choice.id);
-              case 'move_out':
-                await notifier.moveEventOutOfTrip(w.id);
               case 'delete':
                 final ok = await confirmDialog(context, '删除长期地点', '确定删除该长期地点？');
                 if (!ok) return;
@@ -102,12 +92,8 @@ class TimelinePage extends ConsumerWidget {
                 }
             }
           },
-          itemBuilder: (_) => [
-            if (tripId == null)
-              const PopupMenuItem(value: 'move_in', child: Text('移入行程'))
-            else
-              const PopupMenuItem(value: 'move_out', child: Text('移出行程')),
-            const PopupMenuItem(value: 'delete', child: Text('删除')),
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'delete', child: Text('删除')),
           ],
         ),
         onTap: () => Navigator.pushNamed(context, '/person/$personId/event/${w.id}'),
@@ -166,23 +152,3 @@ List<Waypoint> _allWaypoints(PersonData d) =>
 
 List<PathData> _allPaths(PersonData d) =>
     [for (final t in d.trips) ...t.gpx.paths];
-
-Future<Trip?> _pickTrip(BuildContext context, List<TripBundle> trips) {
-  return showDialog<Trip>(
-    context: context,
-    builder: (c) => SimpleDialog(
-      title: const Text('选择行程'),
-      children: [
-        for (final t in trips)
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(c, t.meta),
-            child: Text(t.meta.name),
-          ),
-        SimpleDialogOption(
-          onPressed: () => Navigator.pop(c, null),
-          child: const Text('取消'),
-        ),
-      ],
-    ),
-  );
-}

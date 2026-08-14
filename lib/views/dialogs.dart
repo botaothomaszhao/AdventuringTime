@@ -1054,10 +1054,15 @@ class _RecordSaveDialogState extends ConsumerState<_RecordSaveDialog> {
   @override
   void initState() {
     super.initState();
-    final t = DateTime.now();
     String two(int v) => v.toString().padLeft(2, '0');
-    _name = TextEditingController(
-        text: '轨迹 ${t.year}-${two(t.month)}-${two(t.day)} ${two(t.hour)}:${two(t.minute)}');
+    String fmt(DateTime t) =>
+        '${t.year}${two(t.month)}${two(t.day)} ${two(t.hour)}:${two(t.minute)}';
+    final start = widget.points.first.time ?? DateTime.now();
+    final end = widget.points.last.time ?? DateTime.now();
+    final endPart = end.year == start.year && end.month == start.month && end.day == start.day
+        ? '- ${two(end.hour)}:${two(end.minute)}'
+        : '- ${two(end.month)}${two(end.day)} ${two(end.hour)}:${two(end.minute)}';
+    _name = TextEditingController(text: '轨迹 ${fmt(start)} $endPart');
     _desc = TextEditingController();
   }
 
@@ -1080,6 +1085,7 @@ class _RecordSaveDialogState extends ConsumerState<_RecordSaveDialog> {
               onPressed: () => Navigator.pop(c, t.meta.id),
               child: Text(t.meta.name),
             ),
+          const Divider(height: 1),
           SimpleDialogOption(
             onPressed: () => Navigator.pop(c, '__new__'),
             child: const Text('新建行程'),

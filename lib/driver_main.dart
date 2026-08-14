@@ -155,14 +155,6 @@ Future<String> _handleCommand(String? message) async {
       return jsonEncode([
         for (final w in g.waypoints) {'id': w.id, 'name': w.name, 'mediaId': w.mediaId},
       ]);
-    case 'moveEvent':
-      // 事件移入/移出行程：dir=in/out
-      if (params['dir'] == 'in') {
-        await notifier.moveEventToTrip(params['eventId']!, params['tripId']!);
-      } else {
-        await notifier.moveEventOutOfTrip(params['eventId']!);
-      }
-      return 'ok';
     case 'getLife':
       final d = notifier.d;
       return jsonEncode({

@@ -20,51 +20,6 @@ void main() {
     await tmp.delete(recursive: true);
   });
 
-  test('事件移入/移出行程：跨文件移动且数据不变', () async {
-    final w = Waypoint(
-      id: 'ev1',
-      name: '搬家到上海',
-      desc: '2008年',
-      latLng: const LatLng(31.23, 121.47),
-      time: DateTime.utc(2008, 1, 1),
-      timePrecision: TimePrecision.year,
-      isEvent: true,
-      fromName: '武汉',
-      mediaId: 'm1',
-      createdAt: DateTime.utc(2020, 1, 1),
-      updatedAt: DateTime.utc(2020, 1, 1),
-    );
-    final life = GpxFile(waypoints: [w]);
-    await repo.saveLife(life);
-    expect((await repo.loadLife()).waypointById('ev1'), isNotNull);
-
-    // 移入行程
-    await repo.saveTrip(TripBundle(
-      meta: Trip(
-        id: 't1',
-        name: 't1',
-        createdAt: DateTime.utc(2024, 1, 1),
-        updatedAt: DateTime.utc(2024, 1, 1),
-      ),
-      gpx: GpxFile(waypoints: [w]),
-    ));
-    await repo.saveLife(GpxFile()); // life.gpx 不再含 ev1
-    final lifeAfter = await repo.loadLife();
-    expect(lifeAfter.waypointById('ev1'), isNull);
-    final trip = await repo.loadTrip('t1');
-    final moved = trip!.gpx.waypointById('ev1')!;
-    expect(moved.name, '搬家到上海');
-    expect(moved.timePrecision, TimePrecision.year);
-    expect(moved.fromName, '武汉');
-    expect(moved.mediaId, 'm1');
-
-    // 移回 life
-    await repo.saveLife(GpxFile(waypoints: [moved]));
-    await repo.saveTrip(TripBundle(meta: trip.meta, gpx: GpxFile()));
-    expect((await repo.loadLife()).waypointById('ev1')!.latLng.latitude, closeTo(31.23, 1e-9));
-    expect((await repo.loadTrip('t1'))!.gpx.waypoints, isEmpty);
-  });
-
   test('手动备份后恢复到该版本', () async {
     final life = GpxFile(waypoints: [
       Waypoint(
