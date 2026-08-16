@@ -30,7 +30,7 @@
 
 ```bash
 flutter analyze lib            # 静态检查（仅看 error；driver_main 的两个 future 警告为已知）
-flutter test                   # 42 个测试，须全绿后提交
+flutter test                   # 43 个测试，须全绿后提交
 ```
 
 - Flutter SDK 在 `D:\flutter`；新终端需 `$env:Path += ';D:\flutter\bin'`
@@ -42,6 +42,7 @@ flutter test                   # 42 个测试，须全绿后提交
 
 - **commit message 由主 agent 完整给出**，原样提交；不要追加"测试全绿"之类测试结果/状态冗余说明
 - **版本号规则**：`pubspec.yaml` 的 `version: 1.0.x+buildNumber`，每次发 APK 时 versionName 最后一位自增、buildNumber 同步递增（Android 覆盖安装强校验 versionCode 单调增大，buildNumber 不能回退）；同时同步更新 `lib/version.dart` 的 `appVersion`（设置页"关于"显示，现仅 versionName 不带 buildNumber），否则关于里的版本号会落后
+- **版本自增由 devtool 的 build-apk 步骤负责**：主 agent 点名 build-apk 时**不要**预先改 `pubspec.yaml`/`lib/version.dart`，否则会重复自增导致跳号；只有不经过 devtool build-apk 的手工发版才由主 agent 自己改
 - Release 产物：`build\windows\x64\runner\Release\adventuring_time.exe`（构建前若 exe 被占用需先杀 `adventuring_time` 进程）；adb 在 `D:\Android\sdk\platform-tools\adb.exe`
 
 ## 启动应用（避免卡死/重复进程占用）
@@ -92,7 +93,7 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 
 ## 关键业务流程
 
-- **地图点击命中** `map_page.dart _openAt`：点击位置与所有路径/连接线做屏幕像素距离检测（阈值 10px），**路径优先**（打开路径卡片），其次行程连接线（打开行程卡片）。不依赖 hover，勿改回 hitNotifier 方案
+- **地图点击命中** `map_page.dart _openAt`：点击位置与可见地点/路径/连接线做屏幕像素距离检测。**地点/长期地点最高优先**（以图标中心为圆心，阈值 20px；图标中心位于实际位置上方 15px），其次路径（阈值 10px，打开路径卡片），再次行程连接线（打开行程卡片）。不依赖 hover，勿改回 hitNotifier 方案
 - **轨迹线** `buildLifePath`：长期地点+行程按时间排序；行程内部路径/地点/起点长期地点按时间相连、**最后连回终点**；段带 `tripId` 供点击打开行程。改它必跑 `test/lifecycle_test.dart`
 - **绘制路径**：点"绘制路径"→ 点击落点（onTapDown 加点，onTapCancel 撤销误加点）→ 工具栏"完成"→ 选行程 → 路径对话框。预览线必须在 FlutterMap children 内且 `_draftPoints.isNotEmpty` 才渲染（放外面会抛 MapCamera.of 错误页，空点会断言崩溃——两个都踩过坑）
 - **添加地点**：地图落点 → 对话框（名称可异步反向地理编码、到达时间必填、长期地点或选所属行程）。从行程卡片"添加地点"进入时预选行程并预填时间（行程开始或最后地点/路径时间）
@@ -112,7 +113,7 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 - 不写无意义代码；对外部输入做必要校验；基础依赖不可用直接抛错
 - `analysis_options.yaml` 用 flutter_lints 6；勿引入新的状态管理/地图方案
 - 修改 models/gpx_io 时同步检查 `test/gpx_io_test.dart` 与 `storage_test.dart`
-- 地图图层开关（_LayerToggles）是内存态，默认全开
+- 地图图层筛选（_LayerToggles）是内存态：全部（= 长期地点 + 全选行程）、长期地点开关、按行程勾选；行程相关连接线（含首尾长期地点连接）随行程勾选显示，连接线按行程着色，长期地点间直线灰色，默认全开
 - **GitHub 推送**：本机直连 github.com 不通。git push 失败就停下来，请用户开梯子后重试——不要自己配置代理或连代理
 - **release APK 必须显式声明 INTERNET 权限**（main AndroidManifest.xml）：Flutter 只在 debug/profile 构建自动注入，release 缺了会瓦片/搜索全部失败（踩过坑）
 - 瓦片源在设置页保存后即时生效（invalidate tileUrlProvider）；设置页有"清除瓦片缓存"按钮（删应用数据/tiles 目录）

@@ -33,11 +33,11 @@ class MapPage extends ConsumerStatefulWidget {
 
 enum _EditMode { none, addPlace, drawPath, editPath, translatePath }
 
+/// 图层筛选：长期地点开关 + 勾选行程；touched 前默认"全部"全开。
 class _LayerToggles {
-  bool places = true;
   bool events = true;
-  bool paths = true;
-  bool lifePath = true;
+  bool touched = false;
+  final Set<String> tripIds = {};
 }
 
 class _Selected {
@@ -357,14 +357,73 @@ class _MapPageState extends ConsumerState<MapPage>
     return best;
   }
 
-  /// 点击位置命中检测：路径优先（路径有编辑操作），其次行程连接线；未命中则关闭卡片。
+  /// 点击点到地点图标的屏幕像素距离（以图标中心为圆心：30px 标记框 topCenter 布局、
+  /// 图标居中，中心位于实际位置上方 15px）。
+  double _distToMarkerPx(LatLng p, LatLng a) {
+    final cam = _mapCtrl.camera;
+    final wPx = cam.crs.scale(cam.zoom);
+    final sp = cam.latLngToScreenOffset(p);
+    final sa = cam.latLngToScreenOffset(a) + const Offset(0, -15);
+    var dx = sa.dx - sp.dx;
+    if (dx > wPx / 2) {
+      dx -= wPx;
+    } else if (dx < -wPx / 2) {
+      dx += wPx;
+    }
+    return Offset(dx, sa.dy - sp.dy).distance;
+  }
+
+  /// 点击位置命中检测：地点/长期地点优先，其次路径（有编辑操作），再次行程连接线；未命中则关闭卡片。
+  /// 与图层筛选联动：仅命中可见的地点/路径/连接线。
   void _openAt(LatLng tap) {
     final pid = widget.personId;
     final d = _personData();
     if (d == null || pid == null) return;
     const thresh = 10.0;
+    const wpThresh = 20.0;
+    final toggles = _togglesOf(pid);
+    final showAll = _allOn(toggles, d.trips);
+    final visibleTrips = showAll
+        ? d.trips
+        : [
+            for (final id in toggles.tripIds)
+              if (d.tripById(id) != null) d.tripById(id)!,
+          ];
+    final showEvents = showAll || toggles.events;
+    // 地点/长期地点优先（与渲染可见性一致，以图标中心为圆心测距）
+    final waypointHits = <String, ({Waypoint w, String? tripId})>{};
+    if (showEvents) {
+      for (final w in d.life.waypoints) {
+        waypointHits[w.id] = (w: w, tripId: null);
+      }
+    }
+    for (final t in visibleTrips) {
+      for (final w in t.gpx.waypoints) {
+        waypointHits[w.id] = (w: w, tripId: t.meta.id);
+      }
+      for (final eid in [t.meta.startEventId, t.meta.endEventId]) {
+        final e = _findWaypoint(d, eid);
+        if (e != null && !waypointHits.containsKey(e.id)) {
+          waypointHits[e.id] = (w: e, tripId: d.containerOf(e).$1);
+        }
+      }
+    }
+    String? bestWp;
+    var bestWpDist = double.infinity;
+    for (final MapEntry(key: id, value: hit) in waypointHits.entries) {
+      final dist = _distToMarkerPx(tap, hit.w.latLng);
+      if (dist < bestWpDist) {
+        bestWpDist = dist;
+        bestWp = id;
+      }
+    }
+    if (bestWp != null && bestWpDist <= wpThresh) {
+      final hit = waypointHits[bestWp]!;
+      _selectWaypoint(hit.w, hit.tripId, pid);
+      return;
+    }
     // 路径优先
-    for (final t in d.trips) {
+    for (final t in visibleTrips) {
       for (final p in t.gpx.paths) {
         for (var i = 1; i < p.points.length; i++) {
           if (_distToSegmentPx(
@@ -379,13 +438,17 @@ class _MapPageState extends ConsumerState<MapPage>
         }
       }
     }
-    // 行程连接线
+    // 行程连接线（行程相关连接线属于行程，仅对勾选行程命中）
+    final visibleConnTrips = showAll
+        ? {for (final t in d.trips) t.meta.id}
+        : toggles.tripIds;
     final life = buildLifePath(d.life.events, d.trips);
     String? bestTrip;
     var bestTripDist = double.infinity;
     for (final s in life.segs) {
       final tripId = s.tripId;
       if (tripId == null) continue;
+      if (!visibleConnTrips.contains(tripId)) continue;
       final dist = _distToSegmentPx(tap, s.from, s.to);
       if (dist < bestTripDist) {
         bestTripDist = dist;
@@ -414,6 +477,15 @@ class _MapPageState extends ConsumerState<MapPage>
 
   _LayerToggles _togglesOf(String personId) =>
       _toggles.putIfAbsent(personId, _LayerToggles.new);
+
+  /// "全部"态：未手动筛选过默认全开；操作后为长期地点开着且行程全覆盖。
+  bool _allOn(_LayerToggles toggles, List<TripBundle> trips) {
+    if (!toggles.touched) return true;
+    if (!toggles.events) return false;
+    final allTripIds = [for (final t in trips) t.meta.id];
+    if (allTripIds.isEmpty) return true;
+    return allTripIds.every(toggles.tripIds.contains);
+  }
 
   Future<void> _startAddTrip() async {
     final pid = widget.personId!;
@@ -483,6 +555,18 @@ class _MapPageState extends ConsumerState<MapPage>
     return ref
         .read(personDataProvider(pid))
         .maybeWhen(data: (d) => d, orElse: () => null);
+  }
+
+  /// 按 id 找长期地点（life.gpx + 各行程内），供行程首尾引用。
+  Waypoint? _findWaypoint(PersonData d, String? id) {
+    if (id == null) return null;
+    final w = d.life.waypointById(id);
+    if (w != null) return w;
+    for (final t in d.trips) {
+      final w2 = t.gpx.waypointById(id);
+      if (w2 != null) return w2;
+    }
+    return null;
   }
 
   // ---------- 选中弹卡 ----------
@@ -1199,80 +1283,132 @@ class _MapPageState extends ConsumerState<MapPage>
       if (d == null) continue;
       final personLayers = <Widget>[];
 
-      for (final (tripId, gpx) in [
-        for (final t in d.trips) (t.meta.id, t.gpx),
-        (null, d.life),
-      ]) {
-        final color = tripId == null
-            ? _palette[0]
-            : _palette[tripColors.putIfAbsent(
-                tripId,
-                () => colorIdx++ % _palette.length,
-              )];
+      Color tripColor(String tripId) => _palette[tripColors.putIfAbsent(
+            tripId,
+            () => colorIdx++ % _palette.length,
+          )];
+      // 按 trips 固定顺序预分配全部行程颜色，避免不同筛选下分配顺序变化导致颜色漂移
+      for (final t in d.trips) {
+        tripColor(t.meta.id);
+      }
 
-        if (toggles.places || toggles.events) {
-          final markers = <Marker>[];
-          for (final w in gpx.waypoints) {
-            final isEv = w.isEvent;
-            if (isEv && !toggles.events) continue;
-            if (!isEv && !toggles.places) continue;
-            markers.add(
+      final showAll = _allOn(toggles, d.trips);
+      // 可见行程：全部模式显示全部，否则仅勾选行程
+      final visibleTrips = showAll
+          ? d.trips
+          : [
+              for (final id in toggles.tripIds)
+                if (d.tripById(id) != null) d.tripById(id)!,
+            ];
+      // 连接线可见行程集合（行程相关连接线属于行程，未勾选不显示）
+      final visibleConnTrips = showAll
+          ? {for (final t in d.trips) t.meta.id}
+          : toggles.tripIds;
+      final showEvents = showAll || toggles.events;
+
+      // 长期地点标记：长期地点开关全显 + 勾选行程的首尾/行程内长期地点（按 id 去重）
+      final eventMarkers = <String, Marker>{};
+      final placeMarkers = <Marker>[];
+      Marker eventMarker(Waypoint w) => Marker(
+            point: w.latLng,
+            width: 30,
+            height: 30,
+            alignment: Alignment.topCenter,
+            child: const Icon(
+              Icons.star,
+              color: Color(0xFFE65100),
+              size: 26,
+              shadows: [Shadow(color: Colors.white, blurRadius: 3)],
+            ),
+          );
+      if (showEvents) {
+        for (final w in d.life.waypoints) {
+          eventMarkers[w.id] = eventMarker(w);
+        }
+      }
+      for (final t in visibleTrips) {
+        for (final w in t.gpx.waypoints) {
+          if (w.isEvent) {
+            eventMarkers[w.id] = eventMarker(w);
+          } else {
+            placeMarkers.add(
               Marker(
                 point: w.latLng,
                 width: 30,
                 height: 30,
                 alignment: Alignment.topCenter,
-                child: GestureDetector(
-                  onTap: () => _selectWaypoint(w, tripId, p.id),
-                  child: Icon(
-                    isEv ? Icons.star : Icons.location_on,
-                    color: isEv
-                        ? const Color(0xFFE65100)
-                        : const Color(0xFF2E7D32),
-                    size: isEv ? 26 : 24,
-                    shadows: const [Shadow(color: Colors.white, blurRadius: 3)],
-                  ),
+                child: const Icon(
+                  Icons.location_on,
+                  color: Color(0xFF2E7D32),
+                  size: 24,
+                  shadows: [Shadow(color: Colors.white, blurRadius: 3)],
                 ),
               ),
             );
           }
-          personLayers.add(MarkerLayer(markers: markers));
         }
-
-        if (toggles.paths) {
-          final polylines = <Polyline>[];
-          for (final path in gpx.paths) {
-            polylines.add(
-              Polyline<String>(
-                points: [for (final pt in path.points) pt.latLng],
-                strokeWidth: 3,
-                color: color.withValues(alpha: 0.85),
-                hitValue: '$tripId|${path.id}',
-              ),
-            );
+        // 首尾长期地点始终显示（即使未勾选长期地点）
+        for (final eid in [t.meta.startEventId, t.meta.endEventId]) {
+          final e = _findWaypoint(d, eid);
+          if (e != null && !eventMarkers.containsKey(e.id)) {
+            eventMarkers[e.id] = eventMarker(e);
           }
-          personLayers.add(PolylineLayer(polylines: polylines));
         }
       }
+      if (eventMarkers.isNotEmpty) {
+        personLayers.add(MarkerLayer(markers: eventMarkers.values.toList()));
+      }
+      if (placeMarkers.isNotEmpty) {
+        personLayers.add(MarkerLayer(markers: placeMarkers));
+      }
 
-      if (toggles.lifePath) {
-        final life = buildLifePath(d.life.events, d.trips);
-        final segs = <Polyline>[];
-        for (final s in life.segs) {
-          segs.add(
-            Polyline(
-              points: [s.from, s.to],
-              strokeWidth: s.recorded ? 2.5 : 2,
-              color: const Color(0xFFB71C1C),
-              pattern: s.recorded
-                  ? const StrokePattern.solid()
-                  : StrokePattern.dashed(segments: const [8, 6]),
+      // 路径（勾选行程）
+      final polylines = <Polyline>[];
+      for (final t in visibleTrips) {
+        final color = tripColor(t.meta.id);
+        for (final path in t.gpx.paths) {
+          polylines.add(
+            Polyline<String>(
+              points: [for (final pt in path.points) pt.latLng],
+              strokeWidth: 3,
+              color: color.withValues(alpha: 0.85),
+              hitValue: '${t.meta.id}|${path.id}',
             ),
           );
         }
-        if (segs.isNotEmpty) {
-          personLayers.add(PolylineLayer(polylines: segs));
+      }
+      if (polylines.isNotEmpty) {
+        personLayers.add(PolylineLayer(polylines: polylines));
+      }
+
+      // 连接线：长期地点/全部模式画完整轨迹线（行程段用行程色、长期地点间灰色）；
+      // 仅行程模式画勾选行程的内部连接线（行程色）
+      final segs = <Polyline>[];
+      Polyline connSeg(LifeSeg s, Color color) => Polyline(
+            points: [s.from, s.to],
+            strokeWidth: 2,
+            color: color,
+            pattern: StrokePattern.dashed(segments: const [8, 6]),
+          );
+      if (showEvents) {
+        for (final s in buildLifePath(d.life.events, d.trips).segs) {
+          final tripId = s.tripId;
+          if (tripId == null) {
+            segs.add(connSeg(s, const Color(0xFF9E9E9E)));
+          } else if (visibleConnTrips.contains(tripId)) {
+            segs.add(connSeg(s, tripColor(tripId)));
+          }
         }
+      } else {
+        for (final t in visibleTrips) {
+          final color = tripColor(t.meta.id);
+          for (final s in tripInnerSegs(t, d.life.events)) {
+            segs.add(connSeg(s, color));
+          }
+        }
+      }
+      if (segs.isNotEmpty) {
+        personLayers.add(PolylineLayer(polylines: segs));
       }
 
       layers.addAll(personLayers);
@@ -1753,61 +1889,108 @@ class _MapPageState extends ConsumerState<MapPage>
   }
 
   void _showLayerPanel() {
-    final current = _togglesOf(widget.personId!);
+    final pid = widget.personId!;
+    final toggles = _togglesOf(pid);
+    final d = ref
+        .read(personDataProvider(pid))
+        .maybeWhen(data: (d) => d, orElse: () => null);
+    final allTripIds = [
+      for (final t in d?.trips ?? const <TripBundle>[]) t.meta.id,
+    ];
+
     showModalBottomSheet(
       context: context,
       builder: (c) => StatefulBuilder(
-        builder: (c, setSheet) => SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text(
-                  '图层',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+        builder: (c, setSheet) {
+          void refresh() {
+            setSheet(() {});
+            setState(() {});
+          }
+
+          // 首次操作时把"全部"态的隐含全选物化为显式 tripIds，后续增删基于真实选中集
+          void enter() {
+            if (!toggles.touched) {
+              toggles.tripIds.addAll(allTripIds);
+            }
+            toggles.touched = true;
+          }
+
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    '图层',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ),
-              ),
-              SwitchListTile(
-                title: const Text('地点'),
-                value: current.places,
-                onChanged: (v) {
-                  current.places = v;
-                  setSheet(() {});
-                  setState(() {});
-                },
-              ),
-              SwitchListTile(
-                title: const Text('长期地点'),
-                value: current.events,
-                onChanged: (v) {
-                  current.events = v;
-                  setSheet(() {});
-                  setState(() {});
-                },
-              ),
-              SwitchListTile(
-                title: const Text('路径'),
-                value: current.paths,
-                onChanged: (v) {
-                  current.paths = v;
-                  setSheet(() {});
-                  setState(() {});
-                },
-              ),
-              SwitchListTile(
-                title: const Text('人生轨迹线'),
-                value: current.lifePath,
-                onChanged: (v) {
-                  current.lifePath = v;
-                  setSheet(() {});
-                  setState(() {});
-                },
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        ),
+                SwitchListTile(
+                  title: const Text('全部'),
+                  value: _allOn(toggles, d?.trips ?? const <TripBundle>[]),
+                  onChanged: (v) {
+                    toggles.touched = true;
+                    toggles.events = v;
+                    toggles.tripIds
+                      ..clear()
+                      ..addAll(v ? allTripIds : const <String>[]);
+                    refresh();
+                  },
+                ),
+                SwitchListTile(
+                  title: const Text('长期地点'),
+                  value: toggles.events,
+                  onChanged: (v) {
+                    enter();
+                    toggles.events = v;
+                    refresh();
+                  },
+                ),
+                if (allTripIds.isNotEmpty) ...[
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '行程',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(c).colorScheme.outline,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final t in d!.trips)
+                          SwitchListTile(
+                            dense: true,
+                            title: Text(t.meta.name),
+                            value:
+                                !toggles.touched || toggles.tripIds.contains(t.meta.id),
+                            onChanged: (v) {
+                              enter();
+                              if (v) {
+                                toggles.tripIds.add(t.meta.id);
+                              } else {
+                                toggles.tripIds.remove(t.meta.id);
+                              }
+                              refresh();
+                            },
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

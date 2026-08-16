@@ -35,6 +35,7 @@ class StatsPage extends ConsumerWidget {
                     const SizedBox(height: 12),
                     _row('记录里程', formatMeters(stats.recordedMeters)),
                     _row('推算里程', formatMeters(stats.estimatedMeters)),
+                    _row('总里程', formatMeters(stats.recordedMeters + stats.estimatedMeters)),
                     _row('长期地点', '${stats.eventCount} 个'),
                     _row('行程', '${stats.tripCount} 个'),
                     _row('照片', '${stats.mediaCount} 张'),
@@ -54,7 +55,7 @@ class StatsPage extends ConsumerWidget {
                     height: 44,
                   ),
                   title: Text(t.meta.name),
-                  subtitle: Text(_tripStatsLine(tripStats(t))),
+                  subtitle: Text(_tripStatsLine(tripStats(t), estimatedTripMeters(t, d.life.events))),
                   onTap: () => Navigator.pushNamed(context, '/person/$personId/trip/${t.meta.id}'),
                 ),
               ),
@@ -68,9 +69,9 @@ class StatsPage extends ConsumerWidget {
     );
   }
 
-  String _tripStatsLine(TripStats s) {
+  String _tripStatsLine(TripStats s, double estimatedMeters) {
     final parts = <String>[
-      formatMeters(s.recordedMeters),
+      '记录 ${formatMeters(s.recordedMeters)} + 推算 ${formatMeters(estimatedMeters)}',
       '${s.days} 天',
       '${s.placeCount} 地点',
       '${s.pathCount} 路径',

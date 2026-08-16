@@ -317,6 +317,53 @@ void main() {
       expect(r.segs.single.from, const LatLng(0, 0));
       expect(r.segs.single.to, const LatLng(0, 1));
     });
+
+    test('tripInnerSegs 返回单行程内部连接段（含首尾长期地点连线）', () {
+      final start = ev('s', DateTime.utc(2000, 1, 1), const LatLng(0, 0));
+      final end = ev('e', DateTime.utc(2010, 1, 1), const LatLng(5, 0));
+      final t = TripBundle(
+        meta: Trip(
+          id: 't',
+          name: 't',
+          startDate: DateTime.utc(2005, 1, 1),
+          startEventId: start.id,
+          endEventId: end.id,
+          createdAt: DateTime.utc(2005, 1, 1),
+          updatedAt: DateTime.utc(2005, 1, 1),
+        ),
+        gpx: GpxFile(
+          paths: [
+            PathData(
+              id: 'p1',
+              name: 'p1',
+              isGps: true,
+              points: [
+                TrackPoint(const LatLng(1, 1), DateTime.utc(2005, 1, 1)),
+                TrackPoint(const LatLng(1, 2), DateTime.utc(2005, 1, 2)),
+              ],
+              createdAt: DateTime.utc(2005, 1, 1),
+              updatedAt: DateTime.utc(2005, 1, 1),
+            ),
+          ],
+          waypoints: [
+            Waypoint(
+              id: 'w',
+              name: 'w',
+              latLng: const LatLng(2, 2),
+              time: DateTime.utc(2006, 1, 1),
+              isEvent: false,
+              createdAt: DateTime.utc(2006, 1, 1),
+              updatedAt: DateTime.utc(2006, 1, 1),
+            ),
+          ],
+        ),
+      );
+      final segs = tripInnerSegs(t, [start, end]);
+      // 起点→路径首、路径尾→地点、地点→终点，全部归属该行程
+      expect(segs.map((s) => s.from.latitude), [0.0, 1.0, 2.0]);
+      expect(segs.last.to.latitude, 5.0);
+      expect(segs.every((s) => s.tripId == 't'), isTrue);
+    });
   });
 
   group('统计', () {

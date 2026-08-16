@@ -237,6 +237,16 @@ class _LifeItem {
 /// 单行程推算里程（米）：行程内部直线段总长——起点长期地点→各路径首尾/地点→
 /// 终点长期地点，与轨迹线行程部分一致；不含实际 GPS 轨迹自身长度。
 double estimatedTripMeters(TripBundle t, List<Waypoint> events) {
+  var total = 0.0;
+  for (final s in tripInnerSegs(t, events)) {
+    total += haversineM(s.from, s.to);
+  }
+  return total;
+}
+
+/// 单行程内部连接段（起点长期地点→各路径首尾/地点→终点长期地点，全部虚线），
+/// 供地图按行程勾选显示连接线；与轨迹线行程部分一致。
+List<LifeSeg> tripInnerSegs(TripBundle t, List<Waypoint> events) {
   Waypoint? findWp(String? id) {
     if (id == null) return null;
     for (final e in events) {
@@ -248,11 +258,7 @@ double estimatedTripMeters(TripBundle t, List<Waypoint> events) {
     return null;
   }
 
-  var total = 0.0;
-  for (final s in _tripInner(t, findWp).segs) {
-    total += haversineM(s.from, s.to);
-  }
-  return total;
+  return _tripInner(t, findWp).segs;
 }
 
 /// 行程统计。
