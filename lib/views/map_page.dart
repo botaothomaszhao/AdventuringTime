@@ -205,29 +205,43 @@ class _MapPageState extends ConsumerState<MapPage>
     }
   }
 
-  /// 蓝点实时位置：取两源中定位时间更新者——记录中服务 fix 正常时用服务位置；
-  /// 服务刚启动/从后台回来时 geolocator 前台实时位置更新则用之，避免回跳与冷启动等待。
-  LatLng? _currentBluePos() {
-    if (_myPos == null) return _livePos;
-    if (_livePos == null) return _myPos;
-    final mt = _myPosTime;
-    final lt = _livePosTime;
-    if (mt == null) return _livePos;
-    if (lt == null) return _myPos;
-    return mt.isAfter(lt) ? _myPos : _livePos;
+  /// 蓝点实时位置：取候选源（红线末端/geolocator/服务实时位置）中定位时间最新者——
+  /// 前台位置流每秒更新占优；后台/回前台瞬间位置流冻结，红线末端（服务持续采样）
+  /// 兜底，回前台时蓝点已随记录的线画好，避免停在记录的线中间的旧位置。
+  LatLng? _currentBluePos(RecordState? rec) {
+    LatLng? best;
+    DateTime? bestT;
+    void consider(DateTime? t, LatLng? p) {
+      if (p == null) return;
+      if (best == null || (t != null && (bestT == null || t.isAfter(bestT!)))) {
+        best = p;
+        bestT = t;
+      }
+    }
+
+    if (rec != null && rec.points.isNotEmpty) {
+      consider(rec.points.last.time, rec.points.last.latLng);
+    }
+    consider(_myPosTime, _myPos);
+    consider(_livePosTime, _livePos);
+    return best;
   }
 
   /// 添加地点模式下点击蓝点：在当前位置添加地点。
   void _onMyPosTap() {
     if (_mode != _EditMode.addPlace) return;
-    final p = _currentBluePos();
+    final p = _currentBluePos(
+      Platform.isAndroid ? ref.read(recordingProvider) : null,
+    );
     if (p == null) return;
     _addWaypointAt(p);
   }
 
   /// 相机回到我的位置并把地图方向复位到正北。
   void _centerOnMyPos() {
-    final p = _currentBluePos();
+    final p = _currentBluePos(
+      Platform.isAndroid ? ref.read(recordingProvider) : null,
+    );
     if (p == null) {
       ScaffoldMessenger.of(
         context,
@@ -1362,7 +1376,7 @@ class _MapPageState extends ConsumerState<MapPage>
     }
 
     // 蓝点：我的实时位置（仅 Android）
-    final bluePos = _currentBluePos();
+    final bluePos = _currentBluePos(rec);
     if (Platform.isAndroid && bluePos != null) {
       layers.add(
         MarkerLayer(
@@ -1939,25 +1953,28 @@ class _RecordHudState extends State<_RecordHud> {
     return Material(
       elevation: 3,
       borderRadius: BorderRadius.circular(20),
-      child: Padding(
-        padding: const EdgeInsets.only(left: 12, right: 8, top: 4, bottom: 4),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.circle, size: 10, color: Colors.red),
-            const SizedBox(width: 6),
-            Text(_fmtDuration(rec), style: const TextStyle(fontSize: 13)),
-            const SizedBox(width: 10),
-            Text(
-              formatMeters(rec.meters),
-              style: const TextStyle(fontSize: 13),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              formatSpeedKmh(widget.speedMps),
-              style: const TextStyle(fontSize: 13),
-            ),
-          ],
+      child: SizedBox(
+        height: 40, // 与左侧开始记录按钮（FloatingActionButton.small）等高对齐
+        child: Padding(
+          padding: const EdgeInsets.only(left: 12, right: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.circle, size: 12, color: Colors.red),
+              const SizedBox(width: 6),
+              Text(_fmtDuration(rec), style: const TextStyle(fontSize: 15)),
+              const SizedBox(width: 10),
+              Text(
+                formatMeters(rec.meters),
+                style: const TextStyle(fontSize: 15),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                formatSpeedKmh(widget.speedMps),
+                style: const TextStyle(fontSize: 15),
+              ),
+            ],
+          ),
         ),
       ),
     );

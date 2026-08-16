@@ -31,16 +31,18 @@
 ```bash
 flutter analyze lib            # 静态检查（仅看 error；driver_main 的两个 future 警告为已知）
 flutter test                   # 42 个测试，须全绿后提交
-flutter build windows --release
-flutter build apk --release    # 安卓 release（debug key 签名）；成功后 push 到手机（文件名带版本号，如 adventuring_time_1.1.3.apk）：
-# & D:\Android\sdk\platform-tools\adb.exe push build\app\outputs\flutter-apk\app-release.apk /sdcard/Download/adventuring_time_<versionName>.apk
-# 手机文件管理器手动安装；签名变化（如 debug→release）需先卸载旧版
 ```
 
 - Flutter SDK 在 `D:\flutter`；新终端需 `$env:Path += ';D:\flutter\bin'`
-- Release 产物：`build\windows\x64\runner\Release\adventuring_time.exe`（构建前若 exe 被占用需先杀 `adventuring_time` 进程）
 - 墙内网络：瓦片用 Esri（默认，WGS-84；国内部分区域高等级无数据，可换 Carto Voyager——实测墙内可用）；搜索/反地理编码用 Photon。OSM/Nominatim 不可用，勿切换验证
+
+## 验证与发布（交给 devtool 子代理）
+
+测试、编译 Windows/APK、推到手机、commit、推 GitHub 一律调用 `devtool` 子代理（`.opencode/agent/devtool.md`），主 agent 只给步骤名（test / build-windows / build-apk / push-phone / commit / push-gh）与 commit message，不要自己重复执行这些命令。
+
+- **commit message 由主 agent 完整给出**，原样提交；不要追加"测试全绿"之类测试结果/状态冗余说明
 - **版本号规则**：`pubspec.yaml` 的 `version: 1.0.x+buildNumber`，每次发 APK 时 versionName 最后一位自增、buildNumber 同步递增（Android 覆盖安装强校验 versionCode 单调增大，buildNumber 不能回退）；同时同步更新 `lib/version.dart` 的 `appVersion`（设置页"关于"显示，现仅 versionName 不带 buildNumber），否则关于里的版本号会落后
+- Release 产物：`build\windows\x64\runner\Release\adventuring_time.exe`（构建前若 exe 被占用需先杀 `adventuring_time` 进程）；adb 在 `D:\Android\sdk\platform-tools\adb.exe`
 
 ## 启动应用（避免卡死/重复进程占用）
 
