@@ -67,6 +67,7 @@ class _MapPageState extends ConsumerState<MapPage>
   String _searchQ = '';
   bool _searching = false;
   String? _searchError;
+  GeoResult? _searchFocus; // 已跳转到地图位置的搜索结果（点同一项再保存）
   final Map<String, List<LatLng>> _translateOrig = {};
   String? _pendingTripId; // 添加地点模式的目标行程（从行程弹窗进入时预选）
   DiskCachedTileProvider? _tileProvider;
@@ -899,6 +900,7 @@ class _MapPageState extends ConsumerState<MapPage>
         _mode = _EditMode.none;
         _searchResults = [];
         _searchQ = '';
+        _searchFocus = null;
         _pendingTripId = null;
       });
     }
@@ -1086,6 +1088,7 @@ class _MapPageState extends ConsumerState<MapPage>
       setState(() {
         _searchResults = results;
         _searching = false;
+        _searchFocus = null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -1098,11 +1101,17 @@ class _MapPageState extends ConsumerState<MapPage>
 
   void _gotoResult(GeoResult r) {
     final latlng = LatLng(r.lat, r.lon);
-    _mapCtrl.move(latlng, 14);
+    if (_searchFocus != r) {
+      // 第一次点：跳转到地图该位置，标记为选中；再点同一项才弹保存
+      _mapCtrl.move(latlng, 14);
+      setState(() => _searchFocus = r);
+      return;
+    }
     _addWaypointAt(latlng, defaultName: r.name);
     setState(() {
       _searchResults = [];
       _searchQ = '';
+      _searchFocus = null;
     });
   }
 
@@ -1473,7 +1482,7 @@ class _MapPageState extends ConsumerState<MapPage>
             width: 30,
             height: 30,
             child: GestureDetector(
-              onTap: () => _gotoResult(r),
+              onTap: () => _addWaypointAt(LatLng(r.lat, r.lon), defaultName: r.name),
               child: Container(
                 alignment: Alignment.center,
                 decoration: const BoxDecoration(
@@ -1649,6 +1658,7 @@ class _MapPageState extends ConsumerState<MapPage>
                       _mode = _EditMode.none;
                       _searchResults = [];
                       _searchQ = '';
+                      _searchFocus = null;
                     }),
                     icon: const Icon(Icons.close),
                   ),
@@ -1683,9 +1693,12 @@ class _MapPageState extends ConsumerState<MapPage>
             for (final r in _searchResults)
               ListTile(
                 dense: true,
+                selected: _searchFocus == r,
                 leading: CircleAvatar(
                   radius: 11,
-                  backgroundColor: const Color(0xFFD84315),
+                  backgroundColor: _searchFocus == r
+                      ? const Color(0xFF1565C0)
+                      : const Color(0xFFD84315),
                   child: Text(
                     '${_searchResults.indexOf(r) + 1}',
                     style: const TextStyle(
