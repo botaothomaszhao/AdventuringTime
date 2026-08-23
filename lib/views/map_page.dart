@@ -19,6 +19,9 @@ import 'dialogs.dart';
 import 'person_shell.dart';
 import 'widgets.dart';
 
+/// 弹卡下方"倒凸"行程跳转按钮的高度；用于让弹卡保持原位、按钮向下突出。
+const double _tripTabHeight = 44.0;
+
 /// 地图页：图层（地点/长期地点/路径/人生轨迹线）、点击弹卡、增删改、
 /// 手绘路径与顶点编辑、整体平移、地址搜索、行程标记。
 class MapPage extends ConsumerStatefulWidget {
@@ -46,12 +49,16 @@ class _Selected {
   final DateTime? time;
   final TimePrecision? precision;
   final List<Widget> Function() actions;
+  final String? tripLabel; // 所属行程跳转标签（卡片下方居中的凸出按钮）
+  final VoidCallback? onOpenTrip; // 点击后切到该行程的弹卡
   const _Selected({
     required this.label,
     this.detail,
     this.time,
     this.precision,
     required this.actions,
+    this.tripLabel,
+    this.onOpenTrip,
   });
 }
 
@@ -244,6 +251,8 @@ class _MapPageState extends ConsumerState<MapPage>
       Platform.isAndroid ? ref.read(recordingProvider) : null,
     );
     if (p == null) {
+      // 定位不可用时也复位方向到正北，仅提示不移动相机
+      _mapCtrl.rotate(0);
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('定位不可用，请检查定位权限与开关')));
@@ -573,12 +582,23 @@ class _MapPageState extends ConsumerState<MapPage>
   // ---------- 选中弹卡 ----------
 
   void _selectWaypoint(Waypoint w, String? tripId, String personId) {
+    final tripMeta = tripId == null ? null : _personData()?.tripById(tripId)?.meta;
+    final tripName = (tripMeta == null || tripMeta.name.isEmpty)
+        ? '所属行程'
+        : tripMeta.name;
     setState(() {
       _selected = _Selected(
         label: w.name.isEmpty ? '（未命名）' : w.name,
         detail: w.desc == null ? null : Text(w.desc!),
         time: w.time,
         precision: w.timePrecision,
+        tripLabel: tripId == null ? null : tripName,
+        onOpenTrip: tripId == null
+            ? null
+            : () {
+                final t = _personData()?.tripById(tripId);
+                if (t != null) _selectTrip(t, personId);
+              },
         actions: () {
           return [
             ListTile(
@@ -644,6 +664,10 @@ class _MapPageState extends ConsumerState<MapPage>
   }
 
   void _selectPath(PathData p, String tripId, String personId) {
+    final tripMeta = _personData()?.tripById(tripId)?.meta;
+    final tripName = (tripMeta == null || tripMeta.name.isEmpty)
+        ? '所属行程'
+        : tripMeta.name;
     final length = formatMeters(
       pathLengthM([for (final pt in p.points) pt.latLng]),
     );
@@ -669,6 +693,11 @@ class _MapPageState extends ConsumerState<MapPage>
             if (p.desc != null) Text(p.desc!),
           ],
         ),
+        tripLabel: tripName,
+        onOpenTrip: () {
+          final t = _personData()?.tripById(tripId);
+          if (t != null) _selectTrip(t, personId);
+        },
         actions: () {
           return [
             if (!p.isGps)
@@ -1266,10 +1295,12 @@ class _MapPageState extends ConsumerState<MapPage>
             ),
           ),
         if (_selected != null)
+          // 弹卡底缘始终位于 bottom:64；有行程跳转按钮时，按钮向下突入该空隙，
+          // 因此把整段(卡片+按钮)的底锚下移按钮高度，让卡片本身不抬升。
           Positioned(
             left: 8,
             right: 8,
-            bottom: 64,
+            bottom: _selected!.onOpenTrip != null ? 64 - _tripTabHeight : 64,
             child: _SelectedCard(sel: _selected!, onClose: _closeSheet),
           ),
       ],
@@ -2056,7 +2087,45 @@ class _SelectedCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    // 下方居中的凸出按钮：与卡片同底、窄于卡片，形成"倒凸字"向下突出，
+    // 高度固定为 _tripTabHeight，弹卡因此保持原位；按钮在水平中点，不遮挡左右下角常驻按钮。
+    final tab = sel.onOpenTrip == null
+        ? null
+        : Material(
+            color: Theme.of(context).cardColor,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(10),
+              bottom: Radius.circular(16),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: sel.onOpenTrip,
+              child: SizedBox(
+                height: _tripTabHeight,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.luggage_outlined, size: 22),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          sel.tripLabel ?? '所属行程',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 15),
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      const Icon(Icons.arrow_drop_down, size: 26),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+    final card = Material(
       elevation: 6,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
@@ -2103,6 +2172,11 @@ class _SelectedCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [card, if (tab != null) tab],
     );
   }
 }
