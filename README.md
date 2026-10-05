@@ -87,7 +87,7 @@
 
 右上角设置按钮进入：
 
-- **地图瓦片源**：推荐 Carto Voyager（墙内可用）；备选 Esri、OpenStreetMap（需墙外）。自定义模板须为 WGS-84 Web Mercator。切换后「保存瓦片源」即时生效；瓦片有磁盘缓存，「清除瓦片缓存」可强制刷新。
+- **地图瓦片源**：默认 OSM 镜像 openstreetmap.de（墙内可用），另内置 Esri 卫星图、Esri 街道图、OpenStreetMap 官方。完整清单与可用性见「瓦片源」一节。切换后「保存瓦片源」即时生效；瓦片有磁盘缓存，「清除瓦片缓存」可强制刷新。
 - **地址搜索服务**：Photon（默认，墙内可用）或 Nominatim（OSM 官方，墙内可能超时）。
 - **局域网同步**：见第 9 节。
 - **数据目录**：显示当前数据根目录，可修改（留空恢复默认），修改后重启应用生效。
@@ -124,10 +124,29 @@ data/people/<personId>/
 
 GPX 扩展：`isEvent`（长期地点，atrip:eventType=life）、`timePrecision`（年/月/日）、起终点引用、行程内手动调序 `orderIds` 等写入 GPX 扩展字段。所有写入先备份再落盘。
 
+## 瓦片源
+
+模板均为 Web Mercator（EPSG:3857）。本应用坐标是 WGS-84，只能选 WGS-84 源；高德/腾讯/Google 中国区为 GCJ-02，会整体偏移，勿用。自定义模板须为 WGS-84 Web Mercator。
+
+| 源 | 模板 | 墙内可用 | 内置预设 | 说明 |
+| --- | --- | --- | --- | --- |
+| OSM 镜像 openstreetmap.de | `https://tile.openstreetmap.de/{z}/{x}/{y}.png` | 是 | 是（默认） | 街道+地名；第三方社区服务器，乡村数据稀疏 |
+| OSM 镜像 openstreetmap.fr HOT | `https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png` | 是 | 否 | 人道主义风格，第三方社区服务器 |
+| Esri 世界卫星图 | `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}` | 是 | 是 | 卫星影像，中国城市到 z18/19 |
+| Esri 世界街道图 | `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}` | 是 | 是 | 中国区 z15 及以后无数据 |
+| OpenStreetMap 官方 | `https://tile.openstreetmap.org/{z}/{x}/{y}.png` | 否 | 是 | 需墙外 |
+| Carto Voyager | `https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png` | — | 否 | 已需 API key，返回空图，勿用 |
+| Google 地图/地球 | `https://mt{0-3}.google.com/vt/lyrs={m,s}&x={x}&y={y}&z={z}` | 否 | 否 | 仅墙外；google.cn / ditu.google.cn 瓦片端点已停服 |
+| Esri 世界地形图 | `https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}` | 是 | 否 | 中国区 z15 及以后无数据 |
+| Esri NatGeo | `https://server.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}` | 是 | 否 | 国家地理风格 |
+| 天地图 | 需申请 token | 是 | 否 | 需 API key |
+
+瓦片按 z/x/y 存磁盘缓存，不区分来源；换源后旧源瓦片仍可能命中，点「清除瓦片缓存」删除磁盘并清空 Flutter 内存图像缓存、即时刷新。
+
 ## 技术栈
 
 - Flutter（Windows 桌面 + Android），Riverpod 状态管理
-- flutter_map 8.x + Carto Voyager 瓦片（默认，墙内可用，WGS-84 无偏移）；Esri / OSM 可在设置切换
+- flutter_map 8.x + WGS-84 栅格瓦片（默认 OSM 镜像 openstreetmap.de，墙内可直连）；可在设置切换，清单见「瓦片源」
 - 地址搜索/反向地理编码：Photon（https://photon.komoot.io/）
 - 数据存储：GPX 文件 + JSON 元数据（见上文）
 - 局域网同步：Windows 内置 HTTP 服务（端口 8024）

@@ -342,11 +342,24 @@ final referencedMediaIdsProvider = FutureProvider.family<Set<String>, String>((r
   return repo.referencedMediaIds();
 });
 
-/// 设置：瓦片源 URL。墙内默认 Carto Voyager，可在设置中切换。
+/// 默认瓦片源：OSM 德国镜像（WGS-84，墙内可直连）。
+const defaultTileUrl = 'https://tile.openstreetmap.de/{z}/{x}/{y}.png';
+
+/// 旧版本内置默认（Carto 已需 API key、Esri 街道图国内高缩放无数据），
+/// 读到这些值时迁移到 [defaultTileUrl]。
+const _legacyTileUrls = {
+  'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+};
+
+/// 设置：瓦片源 URL。墙内默认 OSM 德国镜像，可在设置中切换。
 final tileUrlProvider = FutureProvider<String>((ref) async {
   final prefs = await SharedPreferences.getInstance();
-  return prefs.getString('tileUrl') ??
-      'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png';
+  final saved = prefs.getString('tileUrl');
+  if (saved == null || saved.isEmpty || _legacyTileUrls.contains(saved)) {
+    return defaultTileUrl;
+  }
+  return saved;
 });
 
 Future<void> setTileUrl(String url) async {

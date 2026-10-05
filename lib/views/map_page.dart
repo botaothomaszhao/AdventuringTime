@@ -1171,6 +1171,7 @@ class _MapPageState extends ConsumerState<MapPage>
       urlTemplate: tileUrl,
       userAgentPackageName: 'dev.adventuring.time',
       tileProvider: _tileProvider ?? CancellableNetworkTileProvider(),
+      reset: tileReset.stream,
     );
     // 记录会话状态（仅 Android，Windows 不 watch 避免调用原生通道）
     final rec = Platform.isAndroid ? ref.watch(recordingProvider) : null;

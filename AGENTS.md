@@ -8,7 +8,7 @@
 - **Android 工具链**：SDK 位于 `D:\Android\sdk`（36.0.0），`flutter doctor` Android 绿灯；Java 23 已装；adb 在 `D:\Android\sdk\platform-tools\adb.exe`
 - **真机**：开发者选项"USB 安装"不可用 → 用 adb push + 手机文件管理器手动安装 APK
 - **VS Build Tools 2022**：17.14.37，路径 `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools`；已装组件：MSVC C++ 工具集、CMake、Windows 10 SDK（19041），`flutter doctor` Windows 检查全绿
-- **网络（墙内）**：瓦片默认 Carto Voyager（WGS-84，墙内可用），备选 Esri / OSM；搜索/反地理编码用 Photon。OSM/Nominatim 不可用，勿切换验证
+- **网络（墙内）**：瓦片源清单与可用性见 README「瓦片源」；搜索/反地理编码用 Photon，Nominatim 墙内不可用，勿切换验证
 
 ### 已知坑：VS workload 标记
 
@@ -109,5 +109,5 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 - 地图图层筛选（_LayerToggles）是内存态：全部（= 长期地点 + 全选行程）、长期地点开关、按行程勾选；行程相关连接线（含首尾长期地点连接）随行程勾选显示，连接线按行程着色，长期地点间直线灰色，默认全开
 - **GitHub 推送**：本机直连 github.com 不通。git push 失败就停下来，请用户开梯子后重试——不要自己配置代理或连代理
 - **release APK 必须显式声明 INTERNET 权限**（main AndroidManifest.xml）：Flutter 只在 debug/profile 构建自动注入，release 缺了会瓦片/搜索全部失败（踩过坑）
-- 瓦片源在设置页保存后即时生效（invalidate tileUrlProvider）；设置页有"清除瓦片缓存"按钮（删应用数据/tiles 目录）
+- 瓦片源在设置页保存后即时生效（invalidate tileUrlProvider）；设置页有"清除瓦片缓存"按钮（删应用数据/tiles 目录并清空 Flutter ImageCache、通知 TileLayer 重载）
 - 瓦片无数据区域（部分源高等级无数据）当前直接显示灰块；低 zoom 放大兜底已论证未实施（见 PLAN.md §8）

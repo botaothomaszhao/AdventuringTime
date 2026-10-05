@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -6,6 +7,21 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
+
+/// 通知地图重载瓦片（清除缓存后调用）。
+final StreamController<void> tileReset = StreamController<void>.broadcast();
+
+/// 删除瓦片磁盘缓存，并清空 Flutter 内存图像缓存、通知地图重载。
+/// 只删磁盘不清内存缓存的话，已解码的旧瓦片仍会按 URL 命中，看起来像没清。
+Future<void> clearTileCache(Directory cacheDir) async {
+  if (await cacheDir.exists()) {
+    await cacheDir.delete(recursive: true);
+  }
+  PaintingBinding.instance.imageCache
+    ..clear()
+    ..clearLiveImages();
+  tileReset.add(null);
+}
 
 /// 瓦片磁盘缓存 TileProvider：命中磁盘直接读，未命中下载后写入缓存。
 /// 离线时命中缓存可正常显示。

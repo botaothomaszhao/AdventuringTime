@@ -9,7 +9,7 @@
 ## 1. 技术栈
 
 - Flutter（Windows + Android 单代码库），Riverpod 状态管理
-- 地图：`flutter_map` + `latlong2` + `flutter_map_cancellable_tile_provider`；瓦片源默认 Carto Voyager（墙内可用），备选 Esri / OSM，设置页可换
+- 地图：`flutter_map` + `latlong2` + `flutter_map_cancellable_tile_provider`；瓦片源为 WGS-84 栅格源，默认源墙内可直连，设置页可切换（清单见 README「瓦片源」）
 - 地址搜索/反向地理编码：Photon（可切 Nominatim）
 - GPX：`xml`；定位：`geolocator` + 自写 Kotlin 前台服务
 - 同步：`dart:io` HttpServer（服务端）+ `http`（客户端）；zip：`archive`；校验：`crypto`（sha256）

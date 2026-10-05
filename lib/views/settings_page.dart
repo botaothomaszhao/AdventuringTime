@@ -12,6 +12,7 @@ import '../providers.dart';
 import '../storage.dart';
 import '../sync.dart';
 import '../sync_server.dart';
+import '../tile_cache.dart';
 import '../version.dart';
 
 /// 设置：瓦片源、搜索服务、局域网同步、数据目录、关于。
@@ -35,11 +36,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   List<String> _ips = const [];
 
   static const _presets = {
-    'Carto Voyager（墙内可用，推荐）':
-        'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-    'Esri（墙内可用）':
+    'OSM 镜像 openstreetmap.de（墙内可用，推荐）': defaultTileUrl,
+    'Esri 街道图（墙内可用，中国高缩放无数据）':
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-    'OpenStreetMap（需墙外）':
+    'Esri 卫星图（墙内可用）':
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    'OpenStreetMap 官方（需墙外）':
         'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
   };
 
@@ -220,10 +222,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               OutlinedButton(
                 onPressed: () async {
                   final dir = await getApplicationSupportDirectory();
-                  final cache = Directory(p.join(dir.path, 'tiles'));
-                  if (await cache.exists()) {
-                    await cache.delete(recursive: true);
-                  }
+                  await clearTileCache(Directory(p.join(dir.path, 'tiles')));
                   if (!mounted) return;
                   ScaffoldMessenger.of(context)
                       .showSnackBar(const SnackBar(content: Text('瓦片缓存已清除')));
