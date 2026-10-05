@@ -4,10 +4,11 @@
 
 ## 开发环境
 
-- **Flutter SDK**：3.44.8 stable，位于 `D:\flutter`；Dart 3.12.2 随自带，`dart` 命令同目录
+- **Flutter SDK**：3.44.8 stable，位于 `D:\flutter`（新终端需 `$env:Path += ';D:\flutter\bin'`）；Dart 3.12.2 随自带，`dart` 命令同目录
 - **Android 工具链**：SDK 位于 `D:\Android\sdk`（36.0.0），`flutter doctor` Android 绿灯；Java 23 已装；adb 在 `D:\Android\sdk\platform-tools\adb.exe`
 - **真机**：开发者选项"USB 安装"不可用 → 用 adb push + 手机文件管理器手动安装 APK
 - **VS Build Tools 2022**：17.14.37，路径 `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools`；已装组件：MSVC C++ 工具集、CMake、Windows 10 SDK（19041），`flutter doctor` Windows 检查全绿
+- **网络（墙内）**：瓦片默认 Carto Voyager（WGS-84，墙内可用），备选 Esri / OSM；搜索/反地理编码用 Photon。OSM/Nominatim 不可用，勿切换验证
 
 ### 已知坑：VS workload 标记
 
@@ -26,24 +27,12 @@
 - **Dart/Flutter 官方 MCP**（`dart mcp-server`）：已配置在全局 `%USERPROFILE%\.config\opencode\opencode.jsonc`（注意扩展名是 jsonc，不是 json）；功能：启动应用、查看 widget 树、截图、热重载等，通过连接运行中的 Flutter 应用的 VM Service 工作
 - 浏览器调试：chrome-devtools MCP（对 Flutter 桌面应用不适用，仅网页）
 
-## 常用命令
+## 验证与发布（调用 devtool 子代理）
 
-```bash
-flutter analyze lib            # 静态检查（仅看 error；driver_main 的两个 future 警告为已知）
-flutter test                   # 43 个测试，须全绿后提交
-```
+测试、编译 Windows/APK、推到手机、commit、推 GitHub 一律调用 `devtool` 子代理（`.opencode/agent/devtool.md`），主 agent 只给步骤名（test / build-windows / build-apk / push-phone / commit / push-gh）与 commit message，不自己执行这些命令。流程细节与版本号规则见该文件，主 agent 注意两点：
 
-- Flutter SDK 在 `D:\flutter`；新终端需 `$env:Path += ';D:\flutter\bin'`
-- 墙内网络：瓦片用 Esri（默认，WGS-84；国内部分区域高等级无数据，可换 Carto Voyager——实测墙内可用）；搜索/反地理编码用 Photon。OSM/Nominatim 不可用，勿切换验证
-
-## 验证与发布（交给 devtool 子代理）
-
-测试、编译 Windows/APK、推到手机、commit、推 GitHub 一律调用 `devtool` 子代理（`.opencode/agent/devtool.md`），主 agent 只给步骤名（test / build-windows / build-apk / push-phone / commit / push-gh）与 commit message，不要自己重复执行这些命令。
-
-- **commit message 由主 agent 完整给出**，原样提交；不要追加"测试全绿"之类测试结果/状态冗余说明
-- **版本号规则**：`pubspec.yaml` 的 `version: 1.0.x+buildNumber`，每次发 APK 时 versionName 最后一位自增、buildNumber 同步递增（Android 覆盖安装强校验 versionCode 单调增大，buildNumber 不能回退）；同时同步更新 `lib/version.dart` 的 `appVersion`（设置页"关于"显示，现仅 versionName 不带 buildNumber），否则关于里的版本号会落后
-- **版本自增由 devtool 的 build-apk 步骤负责**：主 agent 点名 build-apk 时**不要**预先改 `pubspec.yaml`/`lib/version.dart`，否则会重复自增导致跳号；只有不经过 devtool build-apk 的手工发版才由主 agent 自己改
-- Release 产物：`build\windows\x64\runner\Release\adventuring_time.exe`（构建前若 exe 被占用需先杀 `adventuring_time` 进程）；adb 在 `D:\Android\sdk\platform-tools\adb.exe`
+- **commit message 由主 agent 完整给出**，原样提交，不追加"测试全绿"之类冗余说明
+- **build-apk 由 devtool 自增版本号，主 agent 点名时不要预先改 `pubspec.yaml`/`lib/version.dart`**，否则重复自增跳号
 
 ## 启动应用（避免卡死/重复进程占用）
 
@@ -69,6 +58,10 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 | `models.dart` | Person/Trip/Waypoint/PathData/TrackPoint/GpxFile/TripBundle；`isEvent=true`=长期地点 |
 | `gpx_io.dart` | GPX 解析/序列化（atrip 扩展字段：isEvent、timePrecision、起终点引用、orderIds） |
 | `storage.dart` | 磁盘读写：people/life/trips/media/backups；写前自动备份（内容无变化时跳过，手动备份 force 始终生成） |
+| `sync.dart` | 同步单元/清单构建/打包落盘/合并逻辑（`mergePerson`）；`SyncRemote` 抽象（HTTP 或本地目录） |
+| `sync_server.dart` | Windows 端内置 HTTP 同步服务器（默认端口 8024，只做文件读写） |
+| `transfer.dart` | 人物整包 `.atrip` 导入导出、备份导出、Android 写入下载目录 |
+| `version.dart` | `appVersion`（设置页「关于」显示） |
 | `providers.dart` | Riverpod：personDataProvider（单人全量数据 PersonData）、写操作统一在此（先落盘再更新 state）；含 `reorderTripItem` 行程内按天调序 |
 | `lifecycle.dart` | 纯函数：haversine、buildLifePath（轨迹线）、tripStats、formatLatLng |
 | `geo_search.dart` | Photon 搜索 searchAddress / 反向 reverseAddress |
@@ -97,11 +90,11 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 - **轨迹线** `buildLifePath`：长期地点+行程按时间排序；行程内部路径/地点/起点长期地点按时间相连、**最后连回终点**；段带 `tripId` 供点击打开行程。改它必跑 `test/lifecycle_test.dart`
 - **绘制路径**：点"绘制路径"→ 点击落点（onTapDown 加点，onTapCancel 撤销误加点）→ 工具栏"完成"→ 选行程 → 路径对话框。预览线必须在 FlutterMap children 内且 `_draftPoints.isNotEmpty` 才渲染（放外面会抛 MapCamera.of 错误页，空点会断言崩溃——两个都踩过坑）
 - **添加地点**：地图落点 → 对话框（名称可异步反向地理编码、到达时间必填、长期地点或选所属行程）。从行程卡片"添加地点"进入时预选行程并预填时间（行程开始或最后地点/路径时间）
-- **安卓定位记录**（Kotlin 前台服务 + 地图页浮层，详见 PLAN.md §6.6）：左上按钮开始/停止、右上信息条（时长/里程/实时当前速度）、橙色实时轨迹层、蓝点、右下角回位按钮（方向复位正北）。**无暂停，路径记录一定是一整段，计时=当前-会话开始（大退/被杀重进也算时间）**。服务仅"记录中"运行（前台 1s 定位、后台降频 5s；空闲停止服务、通知消失），采样（位移>20m 或间隔>20s）与落盘在原生侧（`filesDir/rec_session.jsonl` + `rec_state`，状态文件只存会话开始时间 startMs，被杀后 START_STICKY 重启恢复采样）；**前台模式每次定位都推实时位置到位置通道**（与采样解耦，蓝点/实时速度每秒更新）。蓝点：记录中 geolocator 保持订阅（含后台，GPS 热、回前台不冷启动），未记录时进后台延迟 60s 再取消订阅（快速切回仍可用）、回前台重订阅并先以系统最后位置兜底，蓝点取 geolocator 与服务实时位置两源中定位时间最新者；添加地点模式下点蓝点=在当前位置添加地点。GPS 轨迹保存后展示平均/最高速度（口径见 `pathSpeedStats`，超 21s 间隔段不计瞬时）。Windows 上所有相关 UI 走 `Platform.isAndroid` 分支且不 watch `recordingProvider`
+- **安卓定位记录**（Kotlin 前台服务 + 地图页浮层，详见 PLAN.md §7）：左上开始/停止、右上信息条（时长/里程/实时速度）、橙色实时轨迹层、蓝点、右下回位。核心不变量：无暂停、一整段，计时=当前-会话开始（大退/被杀也算）；服务仅"记录中"运行（前台 1s / 后台 5s），采样（>20m 或 >20s）与落盘在原生侧，被杀 `START_STICKY` 按 startMs 恢复；前台每次定位都推实时位置给蓝点。GPS 轨迹保存后展示平均/最高速度（口径见 `pathSpeedStats`，超 21s 间隔段不计）。Windows 上相关 UI 走 `Platform.isAndroid` 分支且不 watch `recordingProvider`
 
 ## 测试与验证
 
-- 单元/组件测试：`test/`（gpx_io/lifecycle/storage/widget）；**提交前 flutter test 全绿**
+- 单元/组件测试：`test/`（gpx_io/lifecycle/storage/sync/widget）；**提交前测试全绿（由 devtool 的 test 步骤执行）**
 - **MCP 驱动测试**：`flutter run -d windows -t lib/driver_main.dart` 提供自定义 handler（addWaypoint/addPath/getData/focusMap/reverse/uiState 等），配合 `dart_dtd connect` + `dart_flutter_driver_command`。**Windows 上 driver tap 地图/按钮不可靠**，多用于对话框流程与数据验证
 - **Windows 窗口验证**：driver 无法 hover/拖拽；确认渲染/点击效果用 Win32 模拟真实鼠标点击（SetCursorPos+mouse_event，注意后台窗口首次点击只激活），或截屏后用 describe-image 查看
 - 测试数据人物 id 会变（用户会在应用里增删人物）；用 `getData` 先查当前 id 再操作，勿硬编码
@@ -117,4 +110,4 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 - **GitHub 推送**：本机直连 github.com 不通。git push 失败就停下来，请用户开梯子后重试——不要自己配置代理或连代理
 - **release APK 必须显式声明 INTERNET 权限**（main AndroidManifest.xml）：Flutter 只在 debug/profile 构建自动注入，release 缺了会瓦片/搜索全部失败（踩过坑）
 - 瓦片源在设置页保存后即时生效（invalidate tileUrlProvider）；设置页有"清除瓦片缓存"按钮（删应用数据/tiles 目录）
-- 瓦片无数据区域（Esri 国内部分高等级）当前直接显示灰块；低 zoom 放大兜底方案已论证未实施（见 PLAN.md §13）
+- 瓦片无数据区域（部分源高等级无数据）当前直接显示灰块；低 zoom 放大兜底已论证未实施（见 PLAN.md §8）

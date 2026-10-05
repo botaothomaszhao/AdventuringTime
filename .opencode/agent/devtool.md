@@ -19,10 +19,7 @@ mode: subagent
 
 ## 3. build-apk：编译安卓 release（会自增版本号）
 - 版本自增是本步骤职责，主 agent 点名 build-apk 时不会预先改版本号；你直接以当前 `pubspec.yaml` 为准自增一次
-- 按规则自增版本号（AGENTS.md「版本号规则」）：
-  - 读 `pubspec.yaml` 的 `version: 1.1.x+buildNumber`，versionName 最后一位 +1，buildNumber 同步 +1
-  - 同步更新 `lib/version.dart` 的 `appVersion`（只带 versionName，不带 buildNumber）
-  - 用 edit 工具改，改完确认两个文件一致
+- 版本规则：`version: 1.1.x+buildNumber`，versionName 最后一位 +1、buildNumber 同步 +1（Android 覆盖安装要求 versionCode 单调递增，buildNumber 不能回退）；同时把 `lib/version.dart` 的 `appVersion` 改为新 versionName（只带 versionName，不带 buildNumber）；用 edit 工具改完确认两个文件一致
 - `flutter build apk --release`
 - 汇报新版本号
 
