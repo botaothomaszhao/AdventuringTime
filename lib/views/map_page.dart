@@ -1166,6 +1166,7 @@ class _MapPageState extends ConsumerState<MapPage>
         .watch(tileUrlProvider)
         .maybeWhen(data: (u) => u, orElse: () => '');
     // 瓦片层：深色模式下应用内置反色滤镜（容器级，性能好）
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final tileLayer = TileLayer(
       urlTemplate: tileUrl,
       userAgentPackageName: 'dev.adventuring.time',
@@ -1197,7 +1198,7 @@ class _MapPageState extends ConsumerState<MapPage>
               onTap: _onTap,
             ),
             children: [
-              if (Theme.of(context).brightness == Brightness.dark)
+              if (dark)
                 darkModeTilesContainerBuilder(context, tileLayer)
               else
                 tileLayer,
@@ -1214,6 +1215,19 @@ class _MapPageState extends ConsumerState<MapPage>
                     ),
                   ],
                 ),
+              // 比例尺：安卓右下角有缩放按钮，上移避让；深色模式瓦片反色，用白字
+              Scalebar(
+                alignment: Alignment.bottomRight,
+                padding: EdgeInsets.only(
+                  right: 8,
+                  bottom: Platform.isAndroid ? 160 : 8,
+                ),
+                textStyle: TextStyle(
+                  color: dark ? Colors.white : Colors.black,
+                  fontSize: 12,
+                ),
+                lineColor: dark ? Colors.white : Colors.black,
+              ),
             ],
           ),
         ),
