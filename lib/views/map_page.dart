@@ -51,6 +51,7 @@ class _Selected {
   final List<Widget> Function() actions;
   final String? tripLabel; // 所属行程跳转标签（卡片下方居中的凸出按钮）
   final VoidCallback? onOpenTrip; // 点击后切到该行程的弹卡
+  final String? pathKey; // 'tripId|pathId'，非空时地图上高亮该轨迹
   const _Selected({
     required this.label,
     this.detail,
@@ -59,6 +60,7 @@ class _Selected {
     required this.actions,
     this.tripLabel,
     this.onOpenTrip,
+    this.pathKey,
   });
 }
 
@@ -101,6 +103,7 @@ class _MapPageState extends ConsumerState<MapPage>
 
   static const _minZoom = 1.0;
   static const _maxZoom = 19.0;
+  static const _highlightColor = Color(0xFFFF6D00); // 轨迹选中/切分高亮
 
   @override
   bool get wantKeepAlive => true;
@@ -695,6 +698,7 @@ class _MapPageState extends ConsumerState<MapPage>
           ],
         ),
         tripLabel: tripName,
+        pathKey: '$tripId|${p.id}',
         onOpenTrip: () {
           final t = _personData()?.tripById(tripId);
           if (t != null) _selectTrip(t, personId);
@@ -1492,23 +1496,40 @@ class _MapPageState extends ConsumerState<MapPage>
         personLayers.add(MarkerLayer(markers: placeMarkers));
       }
 
-      // 路径（勾选行程）
+      // 路径（勾选行程）；被点击选中的轨迹叠加橙色高亮（与切分一致）
+      final hlKey = _selected?.pathKey;
       final polylines = <Polyline>[];
+      final hlPolylines = <Polyline>[];
       for (final t in visibleTrips) {
         final color = tripColor(t.meta.id);
         for (final path in t.gpx.paths) {
+          final key = '${t.meta.id}|${path.id}';
+          final pts = [for (final pt in path.points) pt.latLng];
           polylines.add(
             Polyline<String>(
-              points: [for (final pt in path.points) pt.latLng],
+              points: pts,
               strokeWidth: 3,
               color: color.withValues(alpha: 0.85),
-              hitValue: '${t.meta.id}|${path.id}',
+              hitValue: key,
             ),
           );
+          if (key == hlKey) {
+            hlPolylines.add(
+              Polyline<String>(
+                points: pts,
+                strokeWidth: 6,
+                color: _highlightColor.withValues(alpha: 0.6),
+                hitValue: key,
+              ),
+            );
+          }
         }
       }
       if (polylines.isNotEmpty) {
         personLayers.add(PolylineLayer(polylines: polylines));
+      }
+      if (hlPolylines.isNotEmpty) {
+        personLayers.add(PolylineLayer(polylines: hlPolylines));
       }
 
       // 连接线：长期地点/全部模式画完整轨迹线（行程段用行程色、长期地点间灰色）；
@@ -1601,7 +1622,7 @@ class _MapPageState extends ConsumerState<MapPage>
               Polyline(
                 points: [for (final pt in split.points) pt.latLng],
                 strokeWidth: 6,
-                color: const Color(0xFFFF6D00).withValues(alpha: 0.6),
+                color: _highlightColor.withValues(alpha: 0.6),
               ),
             ],
           ),
@@ -1617,7 +1638,7 @@ class _MapPageState extends ConsumerState<MapPage>
                   height: 30,
                   child: const Icon(
                     Icons.circle,
-                    color: Color(0xFFFF6D00),
+                    color: _highlightColor,
                     size: 20,
                     shadows: [Shadow(color: Colors.white, blurRadius: 3)],
                   ),
