@@ -554,4 +554,82 @@ void main() {
       expect(haversineM(const LatLng(0, 0), const LatLng(1, 0)), closeTo(111194.9, 500));
     });
   });
+
+  group('轨迹名与切分', () {
+    TrackPoint tp(double lat, DateTime t) => TrackPoint(LatLng(lat, 0), t);
+
+    test('defaultGpsTrackName 同日与跨日', () {
+      final sameDay = [
+        tp(0, DateTime(2024, 7, 1, 8, 0)),
+        tp(1, DateTime(2024, 7, 1, 9, 0)),
+      ];
+      expect(defaultGpsTrackName(sameDay), '轨迹 20240701 08:00 - 09:00');
+      final crossDay = [
+        tp(0, DateTime(2024, 7, 1, 23, 0)),
+        tp(1, DateTime(2024, 7, 2, 1, 0)),
+      ];
+      expect(defaultGpsTrackName(crossDay), '轨迹 20240701 23:00 - 0702 01:00');
+    });
+
+    test('splitGpsPath 前半保留原轨迹，后半为新轨迹', () {
+      final pts = [
+        tp(0, DateTime(2024, 7, 1, 8, 0)),
+        tp(1, DateTime(2024, 7, 1, 8, 10)),
+        tp(2, DateTime(2024, 7, 1, 8, 20)),
+        tp(3, DateTime(2024, 7, 1, 8, 30)),
+        tp(4, DateTime(2024, 7, 1, 8, 40)),
+      ];
+      final p = PathData(
+        id: 'p1',
+        name: '原轨迹',
+        desc: '说明',
+        mediaIds: const ['m1'],
+        isGps: true,
+        points: pts,
+        createdAt: DateTime.utc(2024, 1, 1),
+        updatedAt: DateTime.utc(2024, 1, 1),
+      );
+      final now = DateTime.utc(2030, 1, 1);
+      final r = splitGpsPath(p, 2, now: now);
+
+      expect(r.head.id, 'p1');
+      expect(r.head.name, '原轨迹');
+      expect(r.head.desc, '说明');
+      expect(r.head.mediaIds, ['m1']);
+      expect(r.head.points.length, 2);
+      expect(r.head.points.last, same(pts[1]));
+      expect(r.head.createdAt, DateTime.utc(2024, 1, 1));
+      expect(r.head.updatedAt, now);
+
+      expect(r.tail.id, isNot('p1'));
+      expect(r.tail.name, '轨迹 20240701 08:20 - 08:40');
+      expect(r.tail.desc, '说明');
+      expect(r.tail.mediaIds, isEmpty);
+      expect(r.tail.points.length, 3);
+      expect(r.tail.points.first, same(pts[2]));
+      expect(r.tail.updatedAt, now);
+    });
+
+    test('splitGpsPath 默认时间名随切分重生成', () {
+      final pts = [
+        tp(0, DateTime(2024, 7, 1, 8, 0)),
+        tp(1, DateTime(2024, 7, 1, 8, 10)),
+        tp(2, DateTime(2024, 7, 1, 8, 20)),
+        tp(3, DateTime(2024, 7, 1, 8, 30)),
+        tp(4, DateTime(2024, 7, 1, 8, 40)),
+      ];
+      final p = PathData(
+        id: 'p2',
+        name: defaultGpsTrackName(pts),
+        isGps: true,
+        points: pts,
+        createdAt: DateTime.utc(2024, 1, 1),
+        updatedAt: DateTime.utc(2024, 1, 1),
+      );
+      expect(p.name, '轨迹 20240701 08:00 - 08:40');
+      final r = splitGpsPath(p, 2);
+      expect(r.head.name, '轨迹 20240701 08:00 - 08:10');
+      expect(r.tail.name, '轨迹 20240701 08:20 - 08:40');
+    });
+  });
 }

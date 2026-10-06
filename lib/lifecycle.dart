@@ -415,3 +415,61 @@ double? currentSpeedMps(List<TrackPoint> pts) {
 /// 速度格式化："--" / "12.3 km/h"。
 String formatSpeedKmh(double? mps) =>
     mps == null ? '--' : '${(mps * 3.6).toStringAsFixed(1)} km/h';
+
+/// GPS 轨迹默认名：轨迹 yyyyMMdd HH:mm - HH:mm（同日）/ - MMDD HH:mm（跨日）。
+/// 与录制保存对话框口径一致，按首末采样点时间生成。
+String defaultGpsTrackName(List<TrackPoint> pts) {
+  String two(int v) => v.toString().padLeft(2, '0');
+  String fmt(DateTime t) =>
+      '${t.year}${two(t.month)}${two(t.day)} ${two(t.hour)}:${two(t.minute)}';
+  final start = pts.firstOrNull?.time ?? DateTime.now();
+  final end = pts.lastOrNull?.time ?? DateTime.now();
+  final endPart = end.year == start.year &&
+          end.month == start.month &&
+          end.day == start.day
+      ? '- ${two(end.hour)}:${two(end.minute)}'
+      : '- ${two(end.month)}${two(end.day)} ${two(end.hour)}:${two(end.minute)}';
+  return '轨迹 ${fmt(start)} $endPart';
+}
+
+/// 在 splitIndex（后半段首点下标）处把 GPS 轨迹一分为二，两段同属一行程。
+/// head 保留原轨迹的 id/说明/照片/起终点引用与创建时间，只截取前半段点；名称若为
+/// 默认生成的时间名，则按切分后的新结束时间重新生成，否则沿用原名。
+/// tail 为新轨迹，名称按新起始时间生成、说明沿用原说明、无照片与起终点引用。
+/// 两侧各需至少 2 个点；调用方保证下标合法。
+({PathData head, PathData tail}) splitGpsPath(
+  PathData p,
+  int splitIndex, {
+  DateTime? now,
+}) {
+  final t = now ?? DateTime.now();
+  final headPts = p.points.sublist(0, splitIndex);
+  final autoNamed = p.name == defaultGpsTrackName(p.points);
+  final head = PathData(
+    id: p.id,
+    name: autoNamed ? defaultGpsTrackName(headPts) : p.name,
+    desc: p.desc,
+    mediaIds: p.mediaIds,
+    isGps: true,
+    points: headPts,
+    startEventId: p.startEventId,
+    startLat: p.startLat,
+    startLon: p.startLon,
+    endEventId: p.endEventId,
+    endLat: p.endLat,
+    endLon: p.endLon,
+    createdAt: p.createdAt,
+    updatedAt: t,
+  );
+  final tailPts = p.points.sublist(splitIndex);
+  final tail = PathData(
+    id: newId(),
+    name: defaultGpsTrackName(tailPts),
+    desc: p.desc,
+    isGps: true,
+    points: tailPts,
+    createdAt: t,
+    updatedAt: t,
+  );
+  return (head: head, tail: tail);
+}

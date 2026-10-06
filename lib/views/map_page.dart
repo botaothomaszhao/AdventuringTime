@@ -34,7 +34,7 @@ class MapPage extends ConsumerStatefulWidget {
   ConsumerState<MapPage> createState() => _MapPageState();
 }
 
-enum _EditMode { none, addPlace, drawPath, editPath, translatePath }
+enum _EditMode { none, addPlace, drawPath, editPath, translatePath, splitPath }
 
 /// 图层筛选：长期地点开关 + 勾选行程；touched 前默认"全部"全开。
 class _LayerToggles {
@@ -69,6 +69,7 @@ class _MapPageState extends ConsumerState<MapPage>
   _EditMode _mode = _EditMode.none;
   final List<LatLng> _draftPoints = [];
   String? _editKey; // 'tripId|pathId'
+  int? _splitIndex; // 切分模式：已选采样点下标
   _Selected? _selected;
   List<GeoResult> _searchResults = [];
   String _searchQ = '';
@@ -733,6 +734,19 @@ class _MapPageState extends ConsumerState<MapPage>
                 await cleanupRemovedMedia(ref, personId, before, p.mediaIds);
               },
             ),
+            if (p.isGps && p.points.length >= 4)
+              ListTile(
+                leading: const Icon(Icons.content_cut),
+                title: const Text('切分轨迹'),
+                onTap: () {
+                  _closeSheet();
+                  setState(() {
+                    _mode = _EditMode.splitPath;
+                    _editKey = '$tripId|${p.id}';
+                    _splitIndex = null;
+                  });
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.delete_outline),
               title: const Text('删除'),
@@ -876,6 +890,8 @@ class _MapPageState extends ConsumerState<MapPage>
         break;
       case _EditMode.translatePath:
         break;
+      case _EditMode.splitPath:
+        _pickSplitPoint(latlng);
     }
   }
 
@@ -1069,6 +1085,64 @@ class _MapPageState extends ConsumerState<MapPage>
         .read(personDataProvider(pid).notifier)
         .saveTripPath(key.$1, p);
   }
+
+  // ---------- 轨迹切分 ----------
+
+  /// 切分模式：点击轨迹附近，吸附到最近的采样点作为切分点（两侧各需至少 2 点）。
+  void _pickSplitPoint(LatLng tap) {
+    final editing = _editingPath();
+    if (editing == null || editing.points.isEmpty) return;
+    final cam = _mapCtrl.camera;
+    final sp = cam.latLngToScreenOffset(tap);
+    var best = 0;
+    var bestD = double.infinity;
+    for (var i = 0; i < editing.points.length; i++) {
+      final d = (cam.latLngToScreenOffset(editing.points[i].latLng) - sp).distance;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    if (bestD > 40) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请点击轨迹附近选择切分点')));
+      return;
+    }
+    if (best < 2 || best > editing.points.length - 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('切分点太靠近端点，两侧各需至少 2 个采样点')),
+      );
+      return;
+    }
+    setState(() => _splitIndex = best);
+  }
+
+  Future<void> _performSplit() async {
+    final key = _editPathKey();
+    final i = _splitIndex;
+    final pid = widget.personId;
+    final p = _editingPath();
+    if (key == null || i == null || pid == null || p == null) return;
+    final preview = splitGpsPath(p, i);
+    final ok = await showSplitConfirmDialog(
+      context,
+      head: preview.head,
+      tail: preview.tail,
+    );
+    if (!ok) return;
+    await ref
+        .read(personDataProvider(pid).notifier)
+        .splitTripPath(key.$1, key.$2, i);
+    if (!mounted) return;
+    setState(() {
+      _mode = _EditMode.none;
+      _editKey = null;
+      _splitIndex = null;
+    });
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('已切分为两条轨迹')));
+  }
+
 
   // ---------- 平移 ----------
 
@@ -1277,7 +1351,8 @@ class _MapPageState extends ConsumerState<MapPage>
           ),
         if (_mode == _EditMode.drawPath ||
             _mode == _EditMode.editPath ||
-            _mode == _EditMode.translatePath)
+            _mode == _EditMode.translatePath ||
+            _mode == _EditMode.splitPath)
           _buildModeBanner(),
         _buildSearchBar(),
         Positioned(left: 8, bottom: 8, child: _buildToolbar()),
@@ -1516,6 +1591,44 @@ class _MapPageState extends ConsumerState<MapPage>
       layers.add(MarkerLayer(markers: markers));
     }
 
+    // 切分模式：高亮被切分轨迹并标记已选切分点
+    if (_mode == _EditMode.splitPath) {
+      final split = _editingPath();
+      if (split != null && split.points.isNotEmpty) {
+        layers.add(
+          PolylineLayer(
+            polylines: [
+              Polyline(
+                points: [for (final pt in split.points) pt.latLng],
+                strokeWidth: 6,
+                color: const Color(0xFFFF6D00).withValues(alpha: 0.6),
+              ),
+            ],
+          ),
+        );
+        final i = _splitIndex;
+        if (i != null && i < split.points.length) {
+          layers.add(
+            MarkerLayer(
+              markers: [
+                Marker(
+                  point: split.points[i].latLng,
+                  width: 30,
+                  height: 30,
+                  child: const Icon(
+                    Icons.circle,
+                    color: Color(0xFFFF6D00),
+                    size: 20,
+                    shadows: [Shadow(color: Colors.white, blurRadius: 3)],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+    }
+
     // 添加地点模式：搜索结果用数字标注在地图上
     if (_mode == _EditMode.addPlace && _searchResults.isNotEmpty) {
       final numMarkers = <Marker>[];
@@ -1628,11 +1741,26 @@ class _MapPageState extends ConsumerState<MapPage>
     _savePath(path);
   }
 
+  /// 切分模式提示：未选点提示选点，已选点显示切分点时间。
+  String _splitBannerText() {
+    final i = _splitIndex;
+    final editing = _editingPath();
+    if (i == null || editing == null || i >= editing.points.length) {
+      return '点击轨迹附近选择切分点';
+    }
+    final t = editing.points[i].time;
+    if (t == null) return '已选切分点，点完成切分';
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '切分点：${t.year}-${two(t.month)}-${two(t.day)} '
+        '${two(t.hour)}:${two(t.minute)}，点完成切分';
+  }
+
   Widget _buildModeBanner() {
     final msg = switch (_mode) {
       _EditMode.drawPath => '点击落点，点完成结束（${_draftPoints.length} 点）',
       _EditMode.editPath => '拖动顶点、点顶点删除、点空心圆插入',
       _EditMode.translatePath => '拖动整条路径',
+      _EditMode.splitPath => _splitBannerText(),
       _EditMode.none || _EditMode.addPlace => '',
     };
     return Positioned(
@@ -1652,6 +1780,7 @@ class _MapPageState extends ConsumerState<MapPage>
                   _mode = _EditMode.none;
                   _draftPoints.clear();
                   _editKey = null;
+                  _splitIndex = null;
                 }),
                 child: const Text('退出'),
               ),
@@ -1854,6 +1983,23 @@ class _MapPageState extends ConsumerState<MapPage>
             onPressed: () => setState(() {
               _mode = _EditMode.none;
               _draftPoints.clear();
+            }),
+          ),
+        ];
+      case _EditMode.splitPath:
+        return [
+          IconButton(
+            icon: const Icon(Icons.check),
+            tooltip: '完成切分',
+            onPressed: _splitIndex == null ? null : _performSplit,
+          ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: '退出',
+            onPressed: () => setState(() {
+              _mode = _EditMode.none;
+              _editKey = null;
+              _splitIndex = null;
             }),
           ),
         ];

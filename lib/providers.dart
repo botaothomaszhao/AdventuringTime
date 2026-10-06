@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'geo_search.dart';
+import 'lifecycle.dart';
 import 'models.dart';
 import 'storage.dart';
 
@@ -259,6 +260,23 @@ class PersonDataNotifier extends FamilyAsyncNotifier<PersonData, String> {
     final g = _tripGpx(next, tripId);
     g.paths.removeWhere((x) => x.id == pathId);
     g.orderIds.remove(pathId);
+    await _commit(next);
+  }
+
+  /// 在 splitIndex 处切分某 GPS 轨迹为两条（同行程），一次落盘。
+  /// 前半段保留原轨迹（名称/说明/照片不变），后半段为新轨迹（名称按新起始时间生成）。
+  Future<void> splitTripPath(String tripId, String pathId, int splitIndex) async {
+    final next = d.copy();
+    final g = _tripGpx(next, tripId);
+    final idx = g.paths.indexWhere((x) => x.id == pathId);
+    if (idx < 0) return;
+    final p = g.paths[idx];
+    if (splitIndex < 2 || splitIndex > p.points.length - 2) return;
+    final r = splitGpsPath(p, splitIndex);
+    g.paths[idx] = r.head;
+    g.paths.add(r.tail);
+    final oi = g.orderIds.indexOf(pathId);
+    if (oi >= 0) g.orderIds.insert(oi + 1, r.tail.id);
     await _commit(next);
   }
 

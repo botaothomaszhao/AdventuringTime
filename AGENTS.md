@@ -63,7 +63,7 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 | `transfer.dart` | 人物整包 `.atrip` 导入导出、备份导出、Android 写入下载目录 |
 | `version.dart` | `appVersion`（设置页「关于」显示） |
 | `providers.dart` | Riverpod：personDataProvider（单人全量数据 PersonData）、写操作统一在此（先落盘再更新 state）；含 `reorderTripItem` 行程内按天调序 |
-| `lifecycle.dart` | 纯函数：haversine、buildLifePath（轨迹线）、tripStats、formatLatLng |
+| `lifecycle.dart` | 纯函数：haversine、buildLifePath（轨迹线）、tripStats、formatLatLng、defaultGpsTrackName/splitGpsPath（轨迹命名与切分） |
 | `geo_search.dart` | Photon 搜索 searchAddress / 反向 reverseAddress |
 | `tile_cache.dart` | 瓦片磁盘缓存 |
 | `location_service.dart` | 安卓定位通道封装 + `recordingProvider`（RecordingNotifier 记录会话，恢复/停止，无暂停）；Windows 不 watch |
@@ -90,6 +90,7 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 - **轨迹线** `buildLifePath`：长期地点+行程按时间排序；行程内部路径/地点/起点长期地点按时间相连、**最后连回终点**；段带 `tripId` 供点击打开行程。改它必跑 `test/lifecycle_test.dart`
 - **绘制路径**：点"绘制路径"→ 点击落点（onTapDown 加点，onTapCancel 撤销误加点）→ 工具栏"完成"→ 选行程 → 路径对话框。预览线必须在 FlutterMap children 内且 `_draftPoints.isNotEmpty` 才渲染（放外面会抛 MapCamera.of 错误页，空点会断言崩溃——两个都踩过坑）
 - **添加地点**：地图落点 → 对话框（名称可异步反向地理编码、到达时间必填、长期地点或选所属行程）。从行程卡片"添加地点"进入时预选行程并预填时间（行程开始或最后地点/路径时间）
+- **切分轨迹**：GPS 轨迹（点数 ≥4）路径卡片「切分轨迹」→ 切分模式点轨迹附近吸附最近采样点（两侧各需 ≥2 点）→ 确认框预览前后两段名称/长度/速度 → 确认。前段留原轨迹（说明/照片/起终点引用不变，仅截点；默认时间名按新结束时间重生成），后段为新轨迹（名称按新起始时间用录制同款格式生成、沿用原说明、无照片），同行程；`splitTripPath` 一次落盘并维护 orderIds。核心纯函数 `splitGpsPath` / `defaultGpsTrackName` 在 lifecycle.dart
 - **安卓定位记录**（Kotlin 前台服务 + 地图页浮层，详见 PLAN.md §7）：左上开始/停止、右上信息条（时长/里程/实时速度）、橙色实时轨迹层、蓝点、右下回位。核心不变量：无暂停、一整段，计时=当前-会话开始（大退/被杀也算）；服务仅"记录中"运行（前台 1s / 后台 5s），采样（>20m 或 >20s）与落盘在原生侧，被杀 `START_STICKY` 按 startMs 恢复；前台每次定位都推实时位置给蓝点。GPS 轨迹保存后展示平均/最高速度（口径见 `pathSpeedStats`，超 21s 间隔段不计）。Windows 上相关 UI 走 `Platform.isAndroid` 分支且不 watch `recordingProvider`
 
 ## 测试与验证

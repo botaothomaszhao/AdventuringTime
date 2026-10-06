@@ -954,6 +954,57 @@ class _PersonDialogState extends State<_PersonDialog> {
   }
 }
 
+/// 轨迹切分确认对话框：预览切分后前后两段的名称、长度与速度。
+Future<bool> showSplitConfirmDialog(
+  BuildContext context, {
+  required PathData head,
+  required PathData tail,
+}) async {
+  String stats(PathData p) {
+    final length = formatMeters(pathLengthM([for (final pt in p.points) pt.latLng]));
+    final s = pathSpeedStats(p.points);
+    return '长度 $length · 平均 ${formatSpeedKmh(s.avgMps)} · 最高 ${formatSpeedKmh(s.maxMps)}';
+  }
+
+  Widget seg(BuildContext c, String label, PathData p) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('$label：${p.name}', style: const TextStyle(fontWeight: FontWeight.bold)),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              stats(p),
+              style: TextStyle(
+                fontSize: 13,
+                color: Theme.of(c).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      );
+
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (c) => AlertDialog(
+      title: const Text('切分轨迹'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          seg(c, '前段', head),
+          const SizedBox(height: 12),
+          seg(c, '后段', tail),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
+        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('确定切分')),
+      ],
+    ),
+  );
+  return ok ?? false;
+}
+
 /// 通用确认对话框。
 Future<bool> confirmDialog(BuildContext context, String title, String message) async {
   final ok = await showDialog<bool>(
@@ -1054,15 +1105,7 @@ class _RecordSaveDialogState extends ConsumerState<_RecordSaveDialog> {
   @override
   void initState() {
     super.initState();
-    String two(int v) => v.toString().padLeft(2, '0');
-    String fmt(DateTime t) =>
-        '${t.year}${two(t.month)}${two(t.day)} ${two(t.hour)}:${two(t.minute)}';
-    final start = widget.points.first.time ?? DateTime.now();
-    final end = widget.points.last.time ?? DateTime.now();
-    final endPart = end.year == start.year && end.month == start.month && end.day == start.day
-        ? '- ${two(end.hour)}:${two(end.minute)}'
-        : '- ${two(end.month)}${two(end.day)} ${two(end.hour)}:${two(end.minute)}';
-    _name = TextEditingController(text: '轨迹 ${fmt(start)} $endPart');
+    _name = TextEditingController(text: defaultGpsTrackName(widget.points));
     _desc = TextEditingController();
   }
 
