@@ -48,7 +48,7 @@ class LifePathResult {
   const LifePathResult(this.segs, this.recordedMeters, this.estimatedMeters);
 }
 
-/// 单条路径（trk/rte）的取点序列，用于行程内部连接。
+/// 单条路径（trk）的取点序列，用于行程内部连接。
 List<LatLng> _pathPoints(PathData p) => [for (final pt in p.points) pt.latLng];
 
 /// 构建人生轨迹线：全部长期地点 + 全部行程按时间排序，相邻项连接，
@@ -128,7 +128,7 @@ LifePathResult buildLifePath(List<Waypoint> events, List<TripBundle> trips) {
   }
   if (recorded == 0) {
     for (final t in trips) {
-      for (final trk in t.gpx.tracks) {
+      for (final trk in t.gpx.paths) {
         recorded += pathLengthM(_pathPoints(trk));
       }
     }
@@ -281,7 +281,7 @@ class TripStats {
 TripStats tripStats(TripBundle t) {
   var meters = 0.0;
   final dates = <int>{};
-  for (final trk in t.gpx.tracks) {
+  for (final trk in t.gpx.paths) {
     meters += pathLengthM(_pathPoints(trk));
     for (final pt in trk.points) {
       final tm = pt.time;
@@ -294,7 +294,7 @@ TripStats tripStats(TripBundle t) {
   } else if (t.meta.startDate != null && t.meta.endDate != null) {
     days = t.meta.endDate!.difference(t.meta.startDate!).inDays + 1;
   } else {
-    days = t.gpx.tracks.isNotEmpty || t.gpx.paths.isNotEmpty ? 1 : 0;
+    days = t.gpx.paths.isNotEmpty ? 1 : 0;
   }
   final media = <String>{
     ...t.meta.mediaIds,
@@ -450,7 +450,6 @@ String defaultGpsTrackName(List<TrackPoint> pts) {
     name: autoNamed ? defaultGpsTrackName(headPts) : p.name,
     desc: p.desc,
     mediaIds: p.mediaIds,
-    isGps: true,
     points: headPts,
     startEventId: p.startEventId,
     startLat: p.startLat,
@@ -466,7 +465,6 @@ String defaultGpsTrackName(List<TrackPoint> pts) {
     id: newId(),
     name: defaultGpsTrackName(tailPts),
     desc: p.desc,
-    isGps: true,
     points: tailPts,
     createdAt: t,
     updatedAt: t,

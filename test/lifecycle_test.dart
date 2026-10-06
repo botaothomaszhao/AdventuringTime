@@ -32,7 +32,6 @@ void main() {
         PathData(
           id: 'p1',
           name: 'p1',
-          isGps: true,
           points: [
             TrackPoint(const LatLng(1, 1), DateTime.utc(2005, 1, 1)),
             TrackPoint(const LatLng(1, 2), DateTime.utc(2005, 1, 2)),
@@ -81,7 +80,6 @@ void main() {
         PathData(
           id: 's1',
           name: 's1',
-          isGps: true,
           points: [
             TrackPoint(const LatLng(0, 0), DateTime.utc(2005, 1, 1)),
             TrackPoint(const LatLng(0, 1), DateTime.utc(2005, 1, 1, 1)),
@@ -92,7 +90,6 @@ void main() {
         PathData(
           id: 's2',
           name: 's2',
-          isGps: true,
           points: [
             TrackPoint(const LatLng(0, 2), DateTime.utc(2005, 1, 2)),
             TrackPoint(const LatLng(0, 3), DateTime.utc(2005, 1, 2, 1)),
@@ -145,7 +142,6 @@ void main() {
             PathData(
               id: 'p1',
               name: 'p1',
-              isGps: false,
               points: [
                 TrackPoint(const LatLng(3, 0), DateTime.utc(2005, 1, 4)),
                 TrackPoint(const LatLng(4, 0), DateTime.utc(2005, 1, 4)),
@@ -336,8 +332,7 @@ void main() {
             PathData(
               id: 'p1',
               name: 'p1',
-              isGps: true,
-              points: [
+                  points: [
                 TrackPoint(const LatLng(1, 1), DateTime.utc(2005, 1, 1)),
                 TrackPoint(const LatLng(1, 2), DateTime.utc(2005, 1, 2)),
               ],
@@ -395,7 +390,6 @@ void main() {
             PathData(
               id: 'p1',
               name: 'p1',
-              isGps: false,
               points: [
                 TrackPoint(const LatLng(2, 0), DateTime.utc(2005, 1, 3)),
                 TrackPoint(const LatLng(4, 0), DateTime.utc(2005, 1, 3)),
@@ -453,7 +447,6 @@ void main() {
         PathData(
           id: 's1',
           name: 's1',
-          isGps: true,
           points: [
             TrackPoint(const LatLng(0, 0), DateTime.utc(2024, 7, 1)),
             TrackPoint(const LatLng(0, 1), DateTime.utc(2024, 7, 1)),
@@ -584,7 +577,7 @@ void main() {
         name: '原轨迹',
         desc: '说明',
         mediaIds: const ['m1'],
-        isGps: true,
+
         points: pts,
         createdAt: DateTime.utc(2024, 1, 1),
         updatedAt: DateTime.utc(2024, 1, 1),
@@ -621,7 +614,7 @@ void main() {
       final p = PathData(
         id: 'p2',
         name: defaultGpsTrackName(pts),
-        isGps: true,
+
         points: pts,
         createdAt: DateTime.utc(2024, 1, 1),
         updatedAt: DateTime.utc(2024, 1, 1),

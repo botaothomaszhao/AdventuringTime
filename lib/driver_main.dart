@@ -91,7 +91,6 @@ Future<String> _handleCommand(String? message) async {
       final path = PathData(
         id: newId(),
         name: params['name'] ?? '测试路径',
-        isGps: params['gps'] == 'true',
         points: points,
         createdAt: now,
         updatedAt: now,

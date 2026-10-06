@@ -39,7 +39,7 @@ void main() {
       expect(p.createdAt, DateTime.utc(2020, 1, 1).toLocal());
     });
 
-    test('普通地点与 trk/rte 往返一致', () {
+    test('普通地点与 trk 往返一致', () {
       final place = Waypoint(
         id: 'p1',
         name: '大理古城',
@@ -54,7 +54,6 @@ void main() {
         name: '骑行记录',
         desc: 'day1',
         mediaIds: ['m1', 'm2'],
-        isGps: true,
         points: [
           TrackPoint(const LatLng(25.0, 100.0), DateTime.utc(2023, 5, 1, 8, 0)),
           TrackPoint(const LatLng(25.1, 100.1), DateTime.utc(2023, 5, 1, 8, 5)),
@@ -65,20 +64,11 @@ void main() {
         createdAt: DateTime.utc(2023, 5, 1),
         updatedAt: DateTime.utc(2023, 5, 1),
       );
-      final rte = PathData(
-        id: 'rte1',
-        name: '手绘路线',
-        isGps: false,
-        points: [TrackPoint(const LatLng(25.2, 100.2)), TrackPoint(const LatLng(25.3, 100.3))],
-        createdAt: DateTime.utc(2023, 5, 1),
-        updatedAt: DateTime.utc(2023, 5, 1),
-      );
-      final gpx = GpxFile(waypoints: [place], paths: [gps, rte]);
+      final gpx = GpxFile(waypoints: [place], paths: [gps]);
       final parsed = parseGpx(toGpx(gpx));
       expect(parsed.waypoints.first.name, '大理古城');
-      expect(parsed.tracks, hasLength(1));
-      expect(parsed.routes, hasLength(1));
-      final t = parsed.tracks.first;
+      expect(parsed.paths, hasLength(1));
+      final t = parsed.paths.first;
       expect(t.id, 'trk1');
       expect(t.points, hasLength(2));
       expect(t.points.first.time, DateTime.utc(2023, 5, 1, 8, 0).toLocal());
@@ -86,7 +76,6 @@ void main() {
       expect(t.startLat, closeTo(24.9, 1e-9));
       expect(t.mediaId, 'm1');
       expect(t.mediaIds, ['m1', 'm2']);
-      expect(parsed.routes.first.points.last.latLng.longitude, closeTo(100.3, 1e-9));
     });
 
     test('行程 metadata 往返一致', () {
@@ -133,8 +122,8 @@ void main() {
       expect(parsed.waypoints.single.name, '西湖');
       expect(parsed.waypoints.single.isEvent, false);
       expect(parsed.waypoints.single.timePrecision, isNull);
-      expect(parsed.tracks.single.points, hasLength(2));
-      expect(parsed.tracks.single.mediaId, isNull);
+      expect(parsed.paths.single.points, hasLength(2));
+      expect(parsed.paths.single.mediaId, isNull);
     });
 
     test('orderIds 往返一致', () {
@@ -143,7 +132,6 @@ void main() {
           PathData(
             id: 'p1',
             name: 'p1',
-            isGps: true,
             points: [TrackPoint(const LatLng(0, 0))],
             createdAt: DateTime.utc(2024, 1, 1),
             updatedAt: DateTime.utc(2024, 1, 1),

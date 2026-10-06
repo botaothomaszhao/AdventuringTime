@@ -79,7 +79,7 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 
 - **长期地点**：`Waypoint.isEvent=true`，存 life.gpx，必填到达时间（time+timePrecision 年/月/日），参与时间线/轨迹线
 - **普通地点**：必须归属某行程（对话框下拉必选），存 trip.gpx
-- **路径**：GPS（trk，点带 time）或手绘（rte，点无 time）；手绘路径的时间通过对话框设置（写入 points[0].time，供轨迹线排序）
+- **路径**：GPS 轨迹（trk，点带 time），仅由安卓实时记录产生，不可手绘
 - **行程内手动调序**：`GpxFile.orderIds`（路径/地点 id 混合，仅行程内）；空 = 按时间排序，覆盖全部项时按自定义顺序展示
 - **行程起终点**：Trip.startEventId/endEventId 引用长期地点
 - 数据根目录：`%USERPROFILE%\AdventuringTime\data\people\<personId>\`
@@ -88,7 +88,6 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 
 - **地图点击命中** `map_page.dart _openAt`：点击位置与可见地点/路径/连接线做屏幕像素距离检测。**地点/长期地点最高优先**（以图标中心为圆心，阈值 20px；图标中心位于实际位置上方 15px），其次路径（阈值 10px，打开路径卡片），再次行程连接线（打开行程卡片）。不依赖 hover，勿改回 hitNotifier 方案
 - **轨迹线** `buildLifePath`：长期地点+行程按时间排序；行程内部路径/地点/起点长期地点按时间相连、**最后连回终点**；段带 `tripId` 供点击打开行程。改它必跑 `test/lifecycle_test.dart`
-- **绘制路径**：点"绘制路径"→ 点击落点（onTapDown 加点，onTapCancel 撤销误加点）→ 工具栏"完成"→ 选行程 → 路径对话框。预览线必须在 FlutterMap children 内且 `_draftPoints.isNotEmpty` 才渲染（放外面会抛 MapCamera.of 错误页，空点会断言崩溃——两个都踩过坑）
 - **添加地点**：地图落点 → 对话框（名称可异步反向地理编码、到达时间必填、长期地点或选所属行程）。从行程卡片"添加地点"进入时预选行程并预填时间（行程开始或最后地点/路径时间）
 - **切分轨迹**：GPS 轨迹（点数 ≥4）路径卡片「切分轨迹」→ 切分模式点轨迹附近吸附最近采样点（两侧各需 ≥2 点）→ 确认框预览前后两段名称/长度/速度 → 确认。前段留原轨迹（说明/照片/起终点引用不变，仅截点；默认时间名按新结束时间重生成），后段为新轨迹（名称按新起始时间用录制同款格式生成、沿用原说明、无照片），同行程；`splitTripPath` 一次落盘并维护 orderIds。核心纯函数 `splitGpsPath` / `defaultGpsTrackName` 在 lifecycle.dart
 - **安卓定位记录**（Kotlin 前台服务 + 地图页浮层，详见 PLAN.md §7）：左上开始/停止、右上信息条（时长/里程/实时速度）、橙色实时轨迹层、蓝点、右下回位。核心不变量：无暂停、一整段，计时=当前-会话开始（大退/被杀也算）；服务仅"记录中"运行（前台 1s / 后台 5s），采样（>20m 或 >20s）与落盘在原生侧，被杀 `START_STICKY` 按 startMs 恢复；前台每次定位都推实时位置给蓝点。GPS 轨迹保存后展示平均/最高速度（口径见 `pathSpeedStats`，超 21s 间隔段不计）。Windows 上相关 UI 走 `Platform.isAndroid` 分支且不 watch `recordingProvider`

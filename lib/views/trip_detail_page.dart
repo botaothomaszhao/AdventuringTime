@@ -215,7 +215,7 @@ class TripDetailPage extends ConsumerWidget {
                     subtitle: Text(item.data is PathData
                         ? _pathSubtitle(item.data as PathData)
                         : ((item.data as Waypoint).desc ?? '')),
-                    trailing: (item.data is PathData && (item.data as PathData).isGps)
+                    trailing: item.data is PathData
                         ? null // GPS 轨迹顺序由记录时间戳决定，无调序按钮
                         : Row(
                             mainAxisSize: MainAxisSize.min,
@@ -424,9 +424,8 @@ List<Waypoint> _allWaypoints(PersonData d) =>
 
 List<PathData> _allPaths(PersonData d) => [for (final t in d.trips) ...t.gpx.paths];
 
-/// 路径列表项副标题：手绘路径只标类型，GPS 轨迹显示长度与速度统计。
+/// 路径列表项副标题：长度与速度统计。
 String _pathSubtitle(PathData p) {
-  if (!p.isGps) return '手绘路径';
   final length = formatMeters(pathLengthM([for (final pt in p.points) pt.latLng]));
   final s = pathSpeedStats(p.points);
   return '长度 $length · 平均 ${formatSpeedKmh(s.avgMps)} · 最高 ${formatSpeedKmh(s.maxMps)}';

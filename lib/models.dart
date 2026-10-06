@@ -167,13 +167,12 @@ class Waypoint {
   DateTime? get sortTime => time;
 }
 
-/// 路径：GPS 轨迹（trk，点带 time）或手绘路径（rte，点无 time）。
+/// 路径：GPS 轨迹（trk，点带 time）。
 class PathData {
   final String id;
   String name;
   String? desc;
   List<String> mediaIds;
-  final bool isGps; // true=trk, false=rte
   List<TrackPoint> points;
   String? startEventId;
   double? startLat, startLon;
@@ -188,7 +187,6 @@ class PathData {
     this.desc,
     String? mediaId,
     List<String>? mediaIds,
-    required this.isGps,
     required this.points,
     this.startEventId,
     this.startLat,
@@ -210,7 +208,7 @@ class PathData {
 
 class TrackPoint {
   final LatLng latLng;
-  final DateTime? time; // GPS 轨迹有；手绘无
+  final DateTime? time;
 
   TrackPoint(this.latLng, [this.time]);
 
@@ -220,7 +218,7 @@ class TrackPoint {
 /// 一份 GPX 文件的解析结果。
 class GpxFile {
   final List<Waypoint> waypoints;
-  final List<PathData> paths; // trk + rte 统一存放（isGps 区分）
+  final List<PathData> paths;
   Trip? metadataTrip; // 从 metadata 扩展读出的行程元数据
   /// 显示顺序（路径/地点 id 混合，仅行程内）。空 = 按时间排序。
   List<String> orderIds;
@@ -235,8 +233,6 @@ class GpxFile {
 
   List<Waypoint> get events => waypoints.where((w) => w.isEvent).toList();
   List<Waypoint> get places => waypoints.where((w) => !w.isEvent).toList();
-  List<PathData> get tracks => paths.where((p) => p.isGps).toList();
-  List<PathData> get routes => paths.where((p) => !p.isGps).toList();
 
   Waypoint? waypointById(String id) {
     for (final w in waypoints) {

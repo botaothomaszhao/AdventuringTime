@@ -485,25 +485,20 @@ class PathForm {
   final String name;
   final String? desc;
   final List<String> mediaIds;
-  final DateTime? time; // 手绘路径的时间（写入首点，供轨迹线排序）
 
-  const PathForm({required this.name, this.desc, this.mediaIds = const [], this.time});
+  const PathForm({required this.name, this.desc, this.mediaIds = const []});
 
   void applyTo(PathData p) {
     p.name = name;
     p.desc = desc;
     p.mediaIds = mediaIds;
-    // GPS 轨迹时间取自记录开始时间，不可改；仅手绘路径写首点时间
-    if (time != null && !p.isGps && p.points.isNotEmpty) {
-      p.points[0] = TrackPoint(p.points[0].latLng, time);
-    }
   }
 }
 
 Future<PathForm?> showPathDialog(
   BuildContext context, {
   required String personId,
-  PathData? existing,
+  required PathData existing,
   VoidCallback? onDelete,
 }) {
   return showDialog<PathForm>(
@@ -514,10 +509,10 @@ Future<PathForm?> showPathDialog(
 
 class _PathDialog extends ConsumerStatefulWidget {
   final String personId;
-  final PathData? existing;
+  final PathData existing;
   final VoidCallback? onDelete;
 
-  const _PathDialog({required this.personId, this.existing, this.onDelete});
+  const _PathDialog({required this.personId, required this.existing, this.onDelete});
 
   @override
   ConsumerState<_PathDialog> createState() => _PathDialogState();
@@ -527,19 +522,13 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
   late final TextEditingController _name;
   late final TextEditingController _desc;
   List<String> _mediaIds = [];
-  DateTime? _time;
-  TimePrecision? _precision;
-  late final bool _isGps;
 
   @override
   void initState() {
     super.initState();
-    _name = TextEditingController(text: widget.existing?.name ?? '');
-    _desc = TextEditingController(text: widget.existing?.desc ?? '');
-    _mediaIds = widget.existing == null ? [] : [...widget.existing!.mediaIds];
-    _time = widget.existing?.points.firstOrNull?.time;
-    _precision = null;
-    _isGps = widget.existing?.isGps ?? false;
+    _name = TextEditingController(text: widget.existing.name);
+    _desc = TextEditingController(text: widget.existing.desc);
+    _mediaIds = [...widget.existing.mediaIds];
   }
 
   @override
@@ -549,26 +538,9 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
     super.dispose();
   }
 
-  /// 按当前精度选择时间（与地点对话框一致）。
-  Future<void> _pickTime() async {
-    final precision = _precision ?? TimePrecision.day;
-    final t = await pickTimeWithPrecision(context, precision: precision, current: _time);
-    if (t == null) return;
-    setState(() => _time = t);
-  }
-
-  String _fmtTime() {
-    final t = _time!;
-    return switch (_precision ?? TimePrecision.day) {
-      TimePrecision.year => '${t.year}年',
-      TimePrecision.month => '${t.year}年${t.month}月',
-      TimePrecision.day => '${t.year}年${t.month}月${t.day}日',
-    };
-  }
-
-  /// GPS 轨迹长度与速度统计摘要（编辑既有路径时展示）。
+  /// GPS 轨迹长度与速度统计摘要。
   String _speedSummary() {
-    final p = widget.existing!.points;
+    final p = widget.existing.points;
     final length = formatMeters(pathLengthM([for (final pt in p) pt.latLng]));
     final s = pathSpeedStats(p);
     return '长度 $length · 平均 ${formatSpeedKmh(s.avgMps)} · 最高 ${formatSpeedKmh(s.maxMps)}';
@@ -576,77 +548,52 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final firstTime = widget.existing.points.firstOrNull?.time;
     return AlertDialog(
-      title: Text(widget.existing == null ? '路径信息' : '编辑路径'),
+      title: const Text('编辑路径'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-            TextField(
-              controller: _name,
-              decoration: const InputDecoration(labelText: '名称', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _desc,
-              decoration: const InputDecoration(labelText: '说明', border: OutlineInputBorder()),
-              maxLines: 2,
-            ),
-          if (!_isGps) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _pickTime,
-                    icon: const Icon(Icons.event),
-                    label: Text(_time == null ? '设置时间（可选）' : _fmtTime()),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                DropdownButton<TimePrecision>(
-                  value: _precision ?? TimePrecision.day,
-                  onChanged: (v) => setState(() => _precision = v),
-                  items: const [
-                    DropdownMenuItem(value: TimePrecision.year, child: Text('年')),
-                    DropdownMenuItem(value: TimePrecision.month, child: Text('月')),
-                    DropdownMenuItem(value: TimePrecision.day, child: Text('日')),
-                  ],
-                ),
-              ],
-            ),
-          ] else ...[
-            Padding(
-              padding: const EdgeInsets.only(top: 12, bottom: 4),
-              child: Text(
-                _time == null ? 'GPS 轨迹' : 'GPS 轨迹 · ${_fmtTime()}',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+          TextField(
+            controller: _name,
+            decoration: const InputDecoration(labelText: '名称', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _desc,
+            decoration: const InputDecoration(labelText: '说明', border: OutlineInputBorder()),
+            maxLines: 2,
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 12, bottom: 4),
+            child: Text(
+              firstTime == null ? 'GPS 轨迹' : 'GPS 轨迹 · ${formatTime(firstTime, null)}',
+              style: TextStyle(
+                fontSize: 14,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
-            Text(
-              _speedSummary(),
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+          ),
+          Text(
+            _speedSummary(),
+            style: TextStyle(
+              fontSize: 13,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
-            const SizedBox(height: 12),
-          ],
+          ),
           const SizedBox(height: 8),
           Text(
             '照片',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           ),
-            const SizedBox(height: 8),
-            _PhotoList(
-              personId: widget.personId,
-              mediaIds: _mediaIds,
-              initial: widget.existing?.mediaIds ?? const [],
-              onChanged: (v) => setState(() => _mediaIds = v),
-            ),
+          const SizedBox(height: 8),
+          _PhotoList(
+            personId: widget.personId,
+            mediaIds: _mediaIds,
+            initial: widget.existing.mediaIds,
+            onChanged: (v) => setState(() => _mediaIds = v),
+          ),
         ],
       ),
       actions: [
@@ -670,7 +617,6 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
                 name: name,
                 desc: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
                 mediaIds: _mediaIds,
-                time: _time,
               ),
             );
           },
@@ -1180,7 +1126,6 @@ class _RecordSaveDialogState extends ConsumerState<_RecordSaveDialog> {
       name: _name.text.trim().isEmpty ? '轨迹' : _name.text.trim(),
       desc: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
       mediaId: mediaId,
-      isGps: true,
       points: widget.points,
       createdAt: now,
       updatedAt: now,

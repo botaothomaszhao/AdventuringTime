@@ -44,7 +44,7 @@ String? _ext(XmlElement e, String local) {
   return null;
 }
 
-/// 从 wpt/trk/rte 元素解析通用 atrip 字段。
+/// 从 wpt 元素解析通用 atrip 字段。
 Waypoint _parseWaypoint(XmlElement e) {
   final lat = double.parse(e.getAttribute('lat')!);
   final lon = double.parse(e.getAttribute('lon')!);
@@ -75,14 +75,10 @@ Waypoint _parseWaypoint(XmlElement e) {
   );
 }
 
-PathData _parsePath(XmlElement e, {required bool isGps}) {
+PathData _parsePath(XmlElement e) {
   final segs = <XmlElement>[];
-  if (isGps) {
-    for (final seg in _children(e, 'trkseg')) {
-      segs.addAll(_children(seg, 'trkpt'));
-    }
-  } else {
-    segs.addAll(_children(e, 'rtept'));
+  for (final seg in _children(e, 'trkseg')) {
+    segs.addAll(_children(seg, 'trkpt'));
   }
   final points = <TrackPoint>[];
   for (final pt in segs) {
@@ -103,7 +99,6 @@ PathData _parsePath(XmlElement e, {required bool isGps}) {
     mediaIds: list == null
         ? (single == null ? const [] : [single])
         : list.split(',').where((s) => s.isNotEmpty).toList(),
-    isGps: isGps,
     points: points,
     startEventId: _ext(e, 'startEventId'),
     startLat: _num(_ext(e, 'startLat')),
@@ -158,9 +153,7 @@ GpxFile parseGpx(String content) {
       case 'wpt':
         waypoints.add(_parseWaypoint(e));
       case 'trk':
-        paths.add(_parsePath(e, isGps: true));
-      case 'rte':
-        paths.add(_parsePath(e, isGps: false));
+        paths.add(_parsePath(e));
       case 'metadata':
         meta = _parseMetadataTrip(e);
       case 'extensions':
@@ -201,8 +194,7 @@ String _wptXml(Waypoint w) {
 }
 
 String _pathXml(PathData p) {
-  final tag = p.isGps ? 'trk' : 'rte';
-  final b = StringBuffer('  <$tag>\n');
+  final b = StringBuffer('  <trk>\n');
   if (p.name.isNotEmpty) b.write('    <name>${_esc(p.name)}</name>\n');
   if (p.desc != null) b.write('    <desc>${_esc(p.desc!)}</desc>\n');
   b.write('    <extensions>\n');
@@ -220,23 +212,17 @@ String _pathXml(PathData p) {
   b.write('      <atrip:createdAt>${_iso(p.createdAt)}</atrip:createdAt>\n');
   b.write('      <atrip:updatedAt>${_iso(p.updatedAt)}</atrip:updatedAt>\n');
   b.write('    </extensions>\n');
-  if (p.isGps) {
-    b.write('    <trkseg>\n');
-    for (final pt in p.points) {
-      b.write('      <trkpt lat="${_lat(pt.latLng)}" lon="${_lon(pt.latLng)}"');
-      if (pt.time != null) {
-        b.write('>\n        <time>${_iso(pt.time!)}</time>\n      </trkpt>\n');
-      } else {
-        b.write('/>\n');
-      }
-    }
-    b.write('    </trkseg>\n');
-  } else {
-    for (final pt in p.points) {
-      b.write('      <rtept lat="${_lat(pt.latLng)}" lon="${_lon(pt.latLng)}"/>\n');
+  b.write('    <trkseg>\n');
+  for (final pt in p.points) {
+    b.write('      <trkpt lat="${_lat(pt.latLng)}" lon="${_lon(pt.latLng)}"');
+    if (pt.time != null) {
+      b.write('>\n        <time>${_iso(pt.time!)}</time>\n      </trkpt>\n');
+    } else {
+      b.write('/>\n');
     }
   }
-  b.write('  </$tag>\n');
+  b.write('    </trkseg>\n');
+  b.write('  </trk>\n');
   return b.toString();
 }
 

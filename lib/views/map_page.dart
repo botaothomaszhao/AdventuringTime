@@ -23,7 +23,7 @@ import 'widgets.dart';
 const double _tripTabHeight = 44.0;
 
 /// 地图页：图层（地点/长期地点/路径/人生轨迹线）、点击弹卡、增删改、
-/// 手绘路径与顶点编辑、整体平移、地址搜索、行程标记。
+/// 轨迹切分、地址搜索、行程标记。
 class MapPage extends ConsumerStatefulWidget {
   /// 可为空：无人物时地图照常显示（不含任何人的数据），操作走提示。
   final String? personId;
@@ -34,7 +34,7 @@ class MapPage extends ConsumerStatefulWidget {
   ConsumerState<MapPage> createState() => _MapPageState();
 }
 
-enum _EditMode { none, addPlace, drawPath, editPath, translatePath, splitPath }
+enum _EditMode { none, addPlace, splitPath }
 
 /// 图层筛选：长期地点开关 + 勾选行程；touched 前默认"全部"全开。
 class _LayerToggles {
@@ -69,7 +69,6 @@ class _MapPageState extends ConsumerState<MapPage>
   final MapController _mapCtrl = MapController();
   final Map<String, _LayerToggles> _toggles = {};
   _EditMode _mode = _EditMode.none;
-  final List<LatLng> _draftPoints = [];
   String? _editKey; // 'tripId|pathId'
   int? _splitIndex; // 切分模式：已选采样点下标
   _Selected? _selected;
@@ -78,7 +77,6 @@ class _MapPageState extends ConsumerState<MapPage>
   bool _searching = false;
   String? _searchError;
   GeoResult? _searchFocus; // 已跳转到地图位置的搜索结果（点同一项再保存）
-  final Map<String, List<LatLng>> _translateOrig = {};
   String? _pendingTripId; // 添加地点模式的目标行程（从行程弹窗进入时预选）
   DiskCachedTileProvider? _tileProvider;
   LatLng? _myPos; // 实时定位点（geolocator 流，仅前台订阅）
@@ -675,11 +673,9 @@ class _MapPageState extends ConsumerState<MapPage>
     final length = formatMeters(
       pathLengthM([for (final pt in p.points) pt.latLng]),
     );
-    var speed = '';
-    if (p.isGps) {
-      final s = pathSpeedStats(p.points);
-      speed = ' · 平均 ${formatSpeedKmh(s.avgMps)} · 最高 ${formatSpeedKmh(s.maxMps)}';
-    }
+    final s = pathSpeedStats(p.points);
+    final speed =
+        ' · 平均 ${formatSpeedKmh(s.avgMps)} · 最高 ${formatSpeedKmh(s.maxMps)}';
     setState(() {
       _selected = _Selected(
         label: p.name.isEmpty ? '（未命名路径）' : p.name,
@@ -689,8 +685,8 @@ class _MapPageState extends ConsumerState<MapPage>
             Wrap(
               runSpacing: 4,
               children: [
-                Text(p.isGps ? 'GPS 轨迹' : '手绘路径'),
-                Text(' · '),
+                const Text('GPS 轨迹'),
+                const Text(' · '),
                 Text('长度 $length$speed'),
               ],
             ),
@@ -705,18 +701,6 @@ class _MapPageState extends ConsumerState<MapPage>
         },
         actions: () {
           return [
-            if (!p.isGps)
-              ListTile(
-                leading: const Icon(Icons.edit_outlined),
-                title: const Text('编辑路径'),
-                onTap: () {
-                  _closeSheet();
-                  setState(() {
-                    _mode = _EditMode.editPath;
-                    _editKey = '$tripId|${p.id}';
-                  });
-                },
-              ),
             ListTile(
               leading: const Icon(Icons.edit_note_outlined),
               title: const Text('编辑信息'),
@@ -738,7 +722,7 @@ class _MapPageState extends ConsumerState<MapPage>
                 await cleanupRemovedMedia(ref, personId, before, p.mediaIds);
               },
             ),
-            if (p.isGps && p.points.length >= 4)
+            if (p.points.length >= 4)
               ListTile(
                 leading: const Icon(Icons.content_cut),
                 title: const Text('切分轨迹'),
@@ -852,27 +836,6 @@ class _MapPageState extends ConsumerState<MapPage>
     });
   }
 
-  Future<Trip?> _pickTrip(List<TripBundle> trips) async {
-    final choice = await showDialog<Trip>(
-      context: context,
-      builder: (c) => SimpleDialog(
-        title: const Text('选择行程'),
-        children: [
-          for (final t in trips)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(c, t.meta),
-              child: Text(t.meta.name),
-            ),
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(c, null),
-            child: const Text('取消'),
-          ),
-        ],
-      ),
-    );
-    return choice;
-  }
-
   void _closeSheet() {
     if (mounted) setState(() => _selected = null);
   }
@@ -888,12 +851,6 @@ class _MapPageState extends ConsumerState<MapPage>
         _openAt(latlng);
       case _EditMode.addPlace:
         _addWaypointAt(latlng);
-      case _EditMode.drawPath:
-        break; // 绘制模式下由外层 GestureDetector 处理（点完成结束）
-      case _EditMode.editPath:
-        break;
-      case _EditMode.translatePath:
-        break;
       case _EditMode.splitPath:
         _pickSplitPoint(latlng);
     }
@@ -971,80 +928,7 @@ class _MapPageState extends ConsumerState<MapPage>
     return last;
   }
 
-  void _addDraftFromScreen(Offset localPos) {
-    final latlng = _mapCtrl.camera.screenOffsetToLatLng(localPos);
-    setState(() => _draftPoints.add(latlng));
-  }
-
-  /// 绘制模式：点击被拖动/双击抢走时撤销误加的点。
-  void _undoDraftPoint() {
-    if (_draftPoints.isNotEmpty) setState(() => _draftPoints.removeLast());
-  }
-
-  Future<void> _finishDrawPath() async {
-    final pid = widget.personId;
-    if (pid == null) return;
-    if (_draftPoints.length < 2) {
-      if (mounted) setState(() => _draftPoints.clear());
-      return;
-    }
-    final trips = List<TripBundle>.of(_personData()?.trips ?? const []);
-    if (trips.isEmpty) {
-      final form = await showTripDialog(context, personId: pid);
-      if (form == null) {
-        if (mounted)
-          setState(() {
-            _mode = _EditMode.none;
-            _draftPoints.clear();
-          });
-        return;
-      }
-      final now = DateTime.now();
-      final trip = Trip(
-        id: newId(),
-        name: form.name,
-        createdAt: now,
-        updatedAt: now,
-      );
-      form.applyTo(trip);
-      await ref
-          .read(personDataProvider(pid).notifier)
-          .createTrip(trip);
-      trips.add(TripBundle(meta: trip, gpx: GpxFile()));
-    }
-    final trip = await _pickTrip(trips);
-    if (trip == null) {
-      if (mounted)
-        setState(() {
-          _mode = _EditMode.none;
-          _draftPoints.clear();
-        });
-      return;
-    }
-    final form = await showPathDialog(context, personId: pid);
-    if (!mounted) return;
-    final now = DateTime.now();
-    final path = PathData(
-      id: newId(),
-      name: form?.name ?? '手绘路径',
-      desc: form?.desc,
-      mediaIds: form?.mediaIds,
-      isGps: false,
-      points: [for (final p in _draftPoints) TrackPoint(p)],
-      createdAt: now,
-      updatedAt: now,
-    );
-    await ref
-        .read(personDataProvider(pid).notifier)
-        .saveTripPath(trip.id, path);
-    if (mounted)
-      setState(() {
-        _mode = _EditMode.none;
-        _draftPoints.clear();
-      });
-  }
-
-  // ---------- 顶点编辑 ----------
+  // ---------- 路径定位 ----------
 
   (String, String)? _editPathKey() {
     if (_editKey == null) return null;
@@ -1058,36 +942,6 @@ class _MapPageState extends ConsumerState<MapPage>
     if (key == null) return null;
     final d = _personData();
     return d?.tripById(key.$1)?.gpx.pathById(key.$2);
-  }
-
-  PathData? _editingPathCopy() {
-    final key = _editPathKey();
-    if (key == null) return null;
-    final d = _personData();
-    final g = d?.tripById(key.$1)?.gpx;
-    final p = g?.pathById(key.$2);
-    if (p == null) return null;
-    final copy = PathData(
-      id: p.id,
-      name: p.name,
-      desc: p.desc,
-      mediaIds: p.mediaIds,
-      isGps: p.isGps,
-      points: [for (final pt in p.points) TrackPoint(pt.latLng, pt.time)],
-      createdAt: p.createdAt,
-      updatedAt: p.updatedAt,
-    );
-    return copy;
-  }
-
-  Future<void> _savePath(PathData p) async {
-    final key = _editPathKey()!;
-    final pid = widget.personId;
-    if (pid == null) return;
-    p.updatedAt = DateTime.now();
-    await ref
-        .read(personDataProvider(pid).notifier)
-        .saveTripPath(key.$1, p);
   }
 
   // ---------- 轨迹切分 ----------
@@ -1145,40 +999,6 @@ class _MapPageState extends ConsumerState<MapPage>
     });
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('已切分为两条轨迹')));
-  }
-
-
-  // ---------- 平移 ----------
-
-  void _startTranslate() {
-    final key = _editPathKey()!;
-    final p = _editingPath();
-    if (p == null) return;
-    _translateOrig[key.$2] = [for (final pt in p.points) pt.latLng];
-    setState(() => _mode = _EditMode.translatePath);
-  }
-
-  void _finishTranslate() {
-    _translateOrig.clear();
-    setState(() => _mode = _EditMode.editPath);
-  }
-
-  void _applyTranslate(Offset delta) {
-    final key = _editPathKey();
-    if (key == null) return;
-    final orig = _translateOrig[key.$2];
-    if (orig == null) return;
-    final path = _editingPathCopy();
-    if (path == null) return;
-    for (var i = 0; i < path.points.length; i++) {
-      final src = orig[i];
-      final p0 = _mapCtrl.camera.latLngToScreenOffset(src);
-      path.points[i] = TrackPoint(
-        _mapCtrl.camera.offsetToCrs(p0 + delta),
-        path.points[i].time,
-      );
-    }
-    _savePath(path);
   }
 
   // ---------- 搜索 ----------
@@ -1253,13 +1073,6 @@ class _MapPageState extends ConsumerState<MapPage>
     );
     // 记录会话状态（仅 Android，Windows 不 watch 避免调用原生通道）
     final rec = Platform.isAndroid ? ref.watch(recordingProvider) : null;
-    // 绘制模式下保留拖动/缩放，但关闭双击缩放（双击用于结束绘制）；整体平移禁用缩放防误触
-    var flags = InteractiveFlag.all;
-    if (_mode == _EditMode.translatePath) {
-      flags = InteractiveFlag.drag;
-    } else if (_mode == _EditMode.drawPath) {
-      flags = InteractiveFlag.all & ~InteractiveFlag.doubleTapZoom;
-    }
 
     return Stack(
       children: [
@@ -1270,31 +1083,19 @@ class _MapPageState extends ConsumerState<MapPage>
           onPointerCancel: (_) => _activePointers--,
           child: FlutterMap(
             mapController: _mapCtrl,
-            options: MapOptions(
-              initialCenter: const LatLng(35.0, 105.0),
-              initialZoom: 4,
-              interactionOptions: InteractionOptions(flags: flags),
-              onTap: _onTap,
-            ),
-            children: [
-              if (dark)
-                darkModeTilesContainerBuilder(context, tileLayer)
-              else
-                tileLayer,
-              ..._buildLayers(people, containers, rec),
-              // 绘制模式预览线（必须在 FlutterMap 内，依赖 MapCamera；空点不渲染）
-              if (_mode == _EditMode.drawPath && _draftPoints.isNotEmpty)
-                PolylineLayer(
-                  polylines: [
-                    Polyline(
-                      points: _draftPoints,
-                      strokeWidth: 3,
-                      color: Colors.orange,
-                      pattern: StrokePattern.dashed(segments: const [8, 6]),
-                    ),
-                  ],
-                ),
-              // 比例尺：安卓右下角有缩放按钮，上移避让；深色模式瓦片反色，用白字
+              options: MapOptions(
+                initialCenter: const LatLng(35.0, 105.0),
+                initialZoom: 4,
+                interactionOptions: const InteractionOptions(flags: InteractiveFlag.all),
+                onTap: _onTap,
+              ),
+              children: [
+                if (dark)
+                  darkModeTilesContainerBuilder(context, tileLayer)
+                else
+                  tileLayer,
+                ..._buildLayers(people, containers, rec),
+                // 比例尺：安卓右下角有缩放按钮，上移避让；深色模式瓦片反色，用白字
               Scalebar(
                 alignment: Alignment.bottomRight,
                 padding: EdgeInsets.only(
@@ -1310,20 +1111,6 @@ class _MapPageState extends ConsumerState<MapPage>
             ],
           ),
         ),
-        if (_mode == _EditMode.drawPath)
-          Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTapDown: (d) => _addDraftFromScreen(d.localPosition),
-              onTapCancel: _undoDraftPoint,
-            ),
-          ),
-        if (_mode == _EditMode.translatePath)
-          Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerMove: (e) => _applyTranslate(e.localDelta),
-            child: const SizedBox.expand(),
-          ),
         if (Platform.isAndroid)
           Positioned(
             right: 8,
@@ -1353,11 +1140,7 @@ class _MapPageState extends ConsumerState<MapPage>
               ),
             ),
           ),
-        if (_mode == _EditMode.drawPath ||
-            _mode == _EditMode.editPath ||
-            _mode == _EditMode.translatePath ||
-            _mode == _EditMode.splitPath)
-          _buildModeBanner(),
+        if (_mode == _EditMode.splitPath) _buildModeBanner(),
         _buildSearchBar(),
         Positioned(left: 8, bottom: 8, child: _buildToolbar()),
         if (Platform.isAndroid && _mode == _EditMode.none)
@@ -1565,53 +1348,6 @@ class _MapPageState extends ConsumerState<MapPage>
       layers.addAll(personLayers);
     }
 
-    // 顶点编辑层
-    final editing = _editingPath();
-    if (_mode == _EditMode.editPath && editing != null) {
-      final markers = <Marker>[];
-      for (var i = 0; i < editing.points.length; i++) {
-        final idx = i;
-        final pt = editing.points[i];
-        markers.add(
-          Marker(
-            point: pt.latLng,
-            width: 26,
-            height: 26,
-            child: _DraggableVertex(
-              mapCtrl: _mapCtrl,
-              point: pt.latLng,
-              onMove: (ll) => _moveVertex(editing, idx, ll),
-              onTap: () => _deleteVertex(editing, idx),
-            ),
-          ),
-        );
-      }
-      for (var i = 1; i < editing.points.length; i++) {
-        final idx = i;
-        final a = editing.points[i - 1].latLng;
-        final b = editing.points[i].latLng;
-        markers.add(
-          Marker(
-            point: LatLng(
-              (a.latitude + b.latitude) / 2,
-              (a.longitude + b.longitude) / 2,
-            ),
-            width: 22,
-            height: 22,
-            child: GestureDetector(
-              onTap: () => _insertVertex(editing, idx),
-              child: const Icon(
-                Icons.add_circle_outline,
-                color: Color(0xAA1565C0),
-                size: 18,
-              ),
-            ),
-          ),
-        );
-      }
-      layers.add(MarkerLayer(markers: markers));
-    }
-
     // 切分模式：高亮被切分轨迹并标记已选切分点
     if (_mode == _EditMode.splitPath) {
       final split = _editingPath();
@@ -1728,40 +1464,6 @@ class _MapPageState extends ConsumerState<MapPage>
     return layers;
   }
 
-  void _moveVertex(PathData p, int index, LatLng latlng) {
-    final path = _editingPathCopy();
-    if (path == null) return;
-    path.points[index] = TrackPoint(latlng, path.points[index].time);
-    _savePath(path);
-  }
-
-  void _insertVertex(PathData p, int index) {
-    final path = _editingPathCopy();
-    if (path == null) return;
-    final a = path.points[index - 1].latLng;
-    final b = path.points[index].latLng;
-    path.points.insert(
-      index,
-      TrackPoint(
-        LatLng((a.latitude + b.latitude) / 2, (a.longitude + b.longitude) / 2),
-      ),
-    );
-    _savePath(path);
-  }
-
-  void _deleteVertex(PathData p, int index) {
-    final path = _editingPathCopy();
-    if (path == null) return;
-    if (path.points.length <= 2) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('至少保留 2 个顶点')));
-      return;
-    }
-    path.points.removeAt(index);
-    _savePath(path);
-  }
-
   /// 切分模式提示：未选点提示选点，已选点显示切分点时间。
   String _splitBannerText() {
     final i = _splitIndex;
@@ -1778,9 +1480,6 @@ class _MapPageState extends ConsumerState<MapPage>
 
   Widget _buildModeBanner() {
     final msg = switch (_mode) {
-      _EditMode.drawPath => '点击落点，点完成结束（${_draftPoints.length} 点）',
-      _EditMode.editPath => '拖动顶点、点顶点删除、点空心圆插入',
-      _EditMode.translatePath => '拖动整条路径',
       _EditMode.splitPath => _splitBannerText(),
       _EditMode.none || _EditMode.addPlace => '',
     };
@@ -1799,7 +1498,6 @@ class _MapPageState extends ConsumerState<MapPage>
               TextButton(
                 onPressed: () => setState(() {
                   _mode = _EditMode.none;
-                  _draftPoints.clear();
                   _editKey = null;
                   _splitIndex = null;
                 }),
@@ -1937,14 +1635,6 @@ class _MapPageState extends ConsumerState<MapPage>
             _guardPerson(() => setState(() => _mode = _EditMode.addPlace)),
       ),
       IconButton(
-        icon: const Icon(Icons.timeline),
-        tooltip: '绘制路径',
-        onPressed: () => _guardPerson(() => setState(() {
-          _mode = _EditMode.drawPath;
-          _draftPoints.clear();
-        })),
-      ),
-      IconButton(
         icon: const Icon(Icons.luggage_outlined),
         tooltip: '新建行程',
         onPressed: () => _guardPerson(_startAddTrip),
@@ -1953,60 +1643,7 @@ class _MapPageState extends ConsumerState<MapPage>
   }
 
   List<Widget> _modeTools() {
-    final editing = _editingPath();
     switch (_mode) {
-      case _EditMode.editPath:
-        return [
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            tooltip: '编辑信息',
-            onPressed: editing == null ? null : () => _editPathInfo(editing),
-          ),
-          IconButton(
-            icon: const Icon(Icons.open_with),
-            tooltip: '整体平移',
-            onPressed: editing == null ? null : _startTranslate,
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            tooltip: '删除路径',
-            onPressed: editing == null
-                ? null
-                : () => _deletePathFromEdit(editing),
-          ),
-          IconButton(
-            icon: const Icon(Icons.check),
-            tooltip: '完成',
-            onPressed: () => setState(() {
-              _mode = _EditMode.none;
-              _editKey = null;
-            }),
-          ),
-        ];
-      case _EditMode.translatePath:
-        return [
-          IconButton(
-            icon: const Icon(Icons.check),
-            tooltip: '完成平移',
-            onPressed: _finishTranslate,
-          ),
-        ];
-      case _EditMode.drawPath:
-        return [
-          IconButton(
-            icon: const Icon(Icons.check),
-            tooltip: '完成',
-            onPressed: _finishDrawPath,
-          ),
-          IconButton(
-            icon: const Icon(Icons.close),
-            tooltip: '退出',
-            onPressed: () => setState(() {
-              _mode = _EditMode.none;
-              _draftPoints.clear();
-            }),
-          ),
-        ];
       case _EditMode.splitPath:
         return [
           IconButton(
@@ -2024,38 +1661,15 @@ class _MapPageState extends ConsumerState<MapPage>
             }),
           ),
         ];
-      default:
+      case _EditMode.none || _EditMode.addPlace:
         return [
           IconButton(
             icon: const Icon(Icons.close),
             tooltip: '退出',
-            onPressed: () => setState(() {
-              _mode = _EditMode.none;
-              _draftPoints.clear();
-            }),
+            onPressed: () => setState(() => _mode = _EditMode.none),
           ),
         ];
     }
-  }
-
-  Future<void> _editPathInfo(PathData p) async {
-    final key = _editPathKey()!;
-    final pid = widget.personId;
-    if (pid == null) return;
-    final before = List<String>.of(p.mediaIds);
-    final form = await showPathDialog(
-      context,
-      personId: pid,
-      existing: p,
-      onDelete: () => _deletePathFromDialog(p, key.$1, pid),
-    );
-    if (form == null) return;
-    form.applyTo(p);
-    p.updatedAt = DateTime.now();
-    await ref
-        .read(personDataProvider(pid).notifier)
-        .saveTripPath(key.$1, p);
-    await cleanupRemovedMedia(ref, pid, before, p.mediaIds);
   }
 
   /// 路径编辑对话框内的删除：确认后删除并关闭对话框与编辑模式。
@@ -2084,32 +1698,6 @@ class _MapPageState extends ConsumerState<MapPage>
         _mode = _EditMode.none;
         _editKey = null;
         _selected = null;
-      });
-    }
-  }
-
-  Future<void> _deletePathFromEdit(PathData p) async {
-    final key = _editPathKey()!;
-    final pid = widget.personId;
-    if (pid == null) return;
-    final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
-    if (!ok) return;
-    await ref
-        .read(personDataProvider(pid).notifier)
-        .deleteTripPath(key.$1, p.id);
-    for (final id in p.mediaIds) {
-      await deleteMediaIfUnused(
-        ref,
-        pid,
-        id,
-        waypoints: _allWaypoints(pid),
-        paths: _allPaths(pid),
-      );
-    }
-    if (mounted) {
-      setState(() {
-        _mode = _EditMode.none;
-        _editKey = null;
       });
     }
   }
@@ -2218,46 +1806,6 @@ class _MapPageState extends ConsumerState<MapPage>
           );
         },
       ),
-    );
-  }
-}
-
-/// 可拖动顶点：pan 时按像素偏移换算经纬度实时更新。
-class _DraggableVertex extends StatefulWidget {
-  final MapController mapCtrl;
-  final LatLng point;
-  final void Function(LatLng) onMove;
-  final VoidCallback onTap;
-
-  const _DraggableVertex({
-    required this.mapCtrl,
-    required this.point,
-    required this.onMove,
-    required this.onTap,
-  });
-
-  @override
-  State<_DraggableVertex> createState() => _DraggableVertexState();
-}
-
-class _DraggableVertexState extends State<_DraggableVertex> {
-  Offset? _startLocal;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: widget.onTap,
-      onPanStart: (d) => _startLocal = d.localPosition,
-      onPanUpdate: (d) {
-        final start = _startLocal;
-        if (start == null) return;
-        final delta = d.localPosition - start;
-        final camera = widget.mapCtrl.camera;
-        final p0 = camera.latLngToScreenOffset(widget.point);
-        widget.onMove(camera.offsetToCrs(p0 + delta));
-      },
-      onPanEnd: (_) => _startLocal = null,
-      child: const Icon(Icons.circle, color: Colors.blue, size: 22),
     );
   }
 }

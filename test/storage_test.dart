@@ -190,7 +190,6 @@ void main() {
             id: 'p1',
             name: 'p1',
             mediaIds: ['m4'],
-            isGps: true,
             points: [TrackPoint(const LatLng(0, 0), DateTime.utc(2024, 1, 1))],
             createdAt: DateTime.utc(2024, 1, 1),
             updatedAt: DateTime.utc(2024, 1, 1),

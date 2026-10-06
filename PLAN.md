@@ -65,13 +65,13 @@ data/people/<personId>/
 
 | 字段 | 挂在 | 含义 |
 |---|---|---|
-| `atrip:id` | wpt / trk / rte | 本地 id |
+| `atrip:id` | wpt / trk | 本地 id |
 | `atrip:eventType=life` | wpt | 该 waypoint 是长期地点 |
 | `atrip:timePrecision` | wpt | `year\|month\|day`，时间模糊精度（year 时 time 为当年 1月1日） |
 | `atrip:fromName` / `fromLat` / `fromLon` | wpt | 长期地点 A→B 起点（可选） |
-| `atrip:mediaId` / `atrip:mediaIds` | wpt / trk / rte | 首张兼容 / 逗号分隔全部媒体 |
-| `atrip:createdAt` / `atrip:updatedAt` | wpt / trk / rte | 时间戳 |
-| `atrip:startEventId` / `startLat` / `startLon`、`endEventId` / `endLat` / `endLon` | trk / rte | 行程起终点引用 + 坐标快照 |
+| `atrip:mediaId` / `atrip:mediaIds` | wpt / trk | 首张兼容 / 逗号分隔全部媒体 |
+| `atrip:createdAt` / `atrip:updatedAt` | wpt / trk | 时间戳 |
+| `atrip:startEventId` / `startLat` / `startLon`、`endEventId` / `endLat` / `endLon` | trk | 行程起终点引用 + 坐标快照 |
 | `atrip:orderIds` | gpx 顶层 extensions | 行程内手动调序 id 列表（逗号分隔，空=按时间排序） |
 | `atrip:trip`（metadata.extensions 内） | metadata | 行程元数据 id/name/description/mediaIds/startDate/endDate/startEventId/endEventId/createdAt/updatedAt |
 
@@ -79,7 +79,6 @@ data/people/<personId>/
 
 - 长期地点/行程地点：`<wpt>`（长期地点带 `eventType=life`）
 - GPS 轨迹：`<trk>`，`<trkseg>` 内 `<trkpt>` 带 `<time>`
-- 手绘路径：`<rte>`，子元素 `<rtept>` 无 time
 - **单一存储**：长期地点只存 life.gpx（UI 不允许归入行程；解析兼容 trip.gpx 内 eventType=life），普通地点必归属某 trip.gpx
 - 行程元数据写入 `<metadata>`；同步/导入优先读 trip.json，外部 GPX 回退 metadata
 
@@ -99,7 +98,7 @@ data/people/<personId>/
 
 ### 4.2 行程
 
-- 包含：多条路径（trk/rte）+ 地点 wpt + trip.json 元数据
+- 包含：多条路径（trk）+ 地点 wpt + trip.json 元数据
 - 起终点引用同人长期地点（§3.3）
 - 作为轨迹线上的一个"行程项"
 
@@ -199,5 +198,5 @@ mergePerson(personId, remote):
 
 - **瓦片无数据区域降级（已论证，未实施）**：flutter_map 8 对"加载中/未加载"瓦片自动用低 zoom 祖先兜底，但对加载失败（404/无数据）不兜底（灰块）。方案：`TileLayer.errorTileCallback` 中逐级取祖先瓦片替换 `tile.imageInfo` + `notifyListeners`；Esri 无数据区返回 404 走该路径。待确认后实施
 - **未实现的规划功能**：单行程导出/导入、单人全量 GPX、外部 GPX 导入、跨人起终点引用（选择器只列同人长期地点）
-- 折线顶点编辑为自实现；人生轨迹线未做 Douglas-Peucker 抽稀（当前数据规模无需）
+- 人生轨迹线未做 Douglas-Peucker 抽稀（当前数据规模无需）
 - Android 厂商省电策略可能杀后台：前台服务 + 电池白名单请求
