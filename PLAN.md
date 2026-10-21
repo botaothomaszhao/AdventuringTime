@@ -127,6 +127,7 @@ data/people/<personId>/
 
 - 开关在设置页「地图叠加」，状态存 SharedPreferences（键 `latLonGrid`），默认关闭
 - 绘制在当前视口内：经线/纬线端点用 `MapCamera.latLngToScreenOffset` 投影，旋转地图时线仍贴合瓦片；网格压在数据图层之下
+- 经度范围按视口宽度反推（`visibleBounds` 经度被夹在 ±180），经线按世界副本重复绘制并归一标注，跨 ±180 与低缩放多份世界都不断线
 - 步长按每度像素数从 `30/20/10/5/2/1/0.5/0.2/0.1/0.05/0.02/0.01/0.005/0.002/0.001°` 中取屏幕间距 ≤160px 的最小档位；标注为 `36°N` / `120°E`，小数位随档位 0~3 位
 - 核心纯函数 `gridStepDeg` / `gridLabel` 在 `views/latlon_grid.dart`，单测见 `test/latlon_grid_test.dart`
 

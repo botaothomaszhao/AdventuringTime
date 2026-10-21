@@ -31,6 +31,35 @@ void main() {
       expect(gridLabel(120.05, 0.05, 'E', 'W'), '120.05°E');
       expect(gridLabel(120.04, 0.02, 'E', 'W'), '120.04°E');
       expect(gridLabel(30.123, 0.001, 'N', 'S'), '30.123°N');
+      expect(gridLabel(180, 1, 'E', 'W'), '180°');
+    });
+  });
+
+  group('经度归一与跨世界副本', () {
+    test('归一后落在 [-180, 180)', () {
+      expect(normalizeLng(370), 10);
+      expect(normalizeLng(-190), 170);
+      expect(normalizeLng(180), -180);
+      expect(normalizeLng(105), 105);
+    });
+
+    test('低缩放跨多份世界时每个副本都有经线', () {
+      // zoom 1：中心 105°，视口宽 1280px、每度 1.42px，经度半宽约 450°
+      final lngs = gridMeridians(105, 450, 30);
+      expect(lngs.first, -330);
+      expect(lngs.last, 540);
+      expect(lngs, contains(390)); // 30°E 的下一副本
+      expect(lngs.map(normalizeLng).toSet().length, 12);
+    });
+
+    test('跨越 180 经线时两侧都有线', () {
+      final east = gridMeridians(179, 40, 10);
+      expect(east, contains(170));
+      expect(east, contains(190));
+      expect(normalizeLng(190), -170);
+      final west = gridMeridians(-179, 40, 10);
+      expect(west, contains(-190));
+      expect(normalizeLng(-190), 170);
     });
   });
 
