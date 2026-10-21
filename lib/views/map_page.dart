@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -90,6 +92,7 @@ class _MapPageState extends ConsumerState<MapPage>
   bool _locPermissionOk = false;
   Timer? _bgCancelTimer; // 未记录进后台延迟取消 geolocator 的定时器
   int _activePointers = 0; // 地图上当前按下的触点数量
+  Offset? _ctrlDownPos; // Ctrl+鼠标左键按下位置（抬起未拖动则复位正北）
 
   static const _palette = [
     Color(0xFF2E7D32),
@@ -100,8 +103,8 @@ class _MapPageState extends ConsumerState<MapPage>
     Color(0xFF00838F),
   ];
 
-  static const _minZoom = 1.0;
-  static const _maxZoom = 19.0;
+  static const _minZoom = 0.5;
+  static const _maxZoom = 22.0;
   static const _highlightColor = Color(0xFFFF6D00); // 轨迹选中/切分高亮
 
   @override
@@ -843,6 +846,24 @@ class _MapPageState extends ConsumerState<MapPage>
 
   // ---------- 地图事件 ----------
 
+  /// Ctrl+鼠标左键单击复位正北：flutter_map 自带的 setNorthOnClick 是「正北指向
+  /// 光标方向」，已在 InteractionOptions 中关闭。按下/抬起位移不超过阈值才算单击，
+  /// Ctrl+拖动仍用于旋转。
+  void _onMapPointerDown(PointerDownEvent e) {
+    _activePointers++;
+    _ctrlDownPos = e.kind == PointerDeviceKind.mouse &&
+            HardwareKeyboard.instance.isControlPressed
+        ? e.position
+        : null;
+  }
+
+  void _onMapPointerUp(PointerUpEvent e) {
+    _activePointers--;
+    final down = _ctrlDownPos;
+    _ctrlDownPos = null;
+    if (down != null && (e.position - down).distance <= 4) _mapCtrl.rotate(0);
+  }
+
   void _onTap(TapPosition pos, LatLng latlng) {
     // 多点触控下忽略"残留点击"：触点抬起时其余手指仍在按下（>=3 指滑动场景），
     // 此时不应把它当单指点击处理，否则连续弹窗会引发布局/键盘抖动导致卡死。
@@ -1079,15 +1100,25 @@ class _MapPageState extends ConsumerState<MapPage>
       children: [
         Listener(
           behavior: HitTestBehavior.translucent,
-          onPointerDown: (_) => _activePointers++,
-          onPointerUp: (_) => _activePointers--,
-          onPointerCancel: (_) => _activePointers--,
+          onPointerDown: _onMapPointerDown,
+          onPointerUp: _onMapPointerUp,
+          onPointerCancel: (_) {
+            _activePointers--;
+            _ctrlDownPos = null;
+          },
           child: FlutterMap(
             mapController: _mapCtrl,
               options: MapOptions(
                 initialCenter: const LatLng(35.0, 105.0),
                 initialZoom: 4,
-                interactionOptions: const InteractionOptions(flags: InteractiveFlag.all),
+                minZoom: _minZoom,
+                maxZoom: _maxZoom,
+                interactionOptions: const InteractionOptions(
+                  flags: InteractiveFlag.all,
+                  cursorKeyboardRotationOptions: CursorKeyboardRotationOptions(
+                    setNorthOnClick: false,
+                  ),
+                ),
                 onTap: _onTap,
               ),
               children: [

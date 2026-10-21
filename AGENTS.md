@@ -98,7 +98,7 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 - 单元/组件测试：`test/`（gpx_io/lifecycle/storage/sync/widget）；**提交前测试全绿（由 devtool 的 test 步骤执行）**
 - **MCP 驱动测试**：`flutter run -d windows -t lib/driver_main.dart` 提供自定义 handler（addWaypoint/addPath/getData/focusMap/reverse/uiState 等），配合 `dart_dtd connect` + `dart_flutter_driver_command`。**Windows 上 driver tap 地图/按钮不可靠**，多用于对话框流程与数据验证
 - **Windows 窗口验证**：driver 无法 hover/拖拽；确认渲染/点击效果用 Win32 模拟真实鼠标点击（SetCursorPos+mouse_event，注意后台窗口首次点击只激活），或截屏后用 describe-image 查看
-- 测试数据人物 id 会变（用户会在应用里增删人物）；用 `getData` 先查当前 id 再操作，勿硬编码
+- 开发功能时的窗口验证仅在用户明确要求自行测试时进行，否则只写代码，编译好让用户测试
 
 ## 约定与陷阱
 
