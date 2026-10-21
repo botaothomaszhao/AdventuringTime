@@ -232,6 +232,19 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             ],
           ),
           const Divider(height: 32),
+          const Text('地图叠加', style: TextStyle(fontWeight: FontWeight.bold)),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('显示经纬度网格'),
+            subtitle: const Text('步长随缩放自动切换（30° 至 0.001°），并标注度数',
+                style: TextStyle(fontSize: 12)),
+            value: ref.watch(latLonGridProvider).maybeWhen(data: (v) => v, orElse: () => false),
+            onChanged: (v) async {
+              await setLatLonGrid(v);
+              ref.invalidate(latLonGridProvider);
+            },
+          ),
+          const Divider(height: 32),
           const Text('地址搜索服务', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
           Text('Photon（默认，墙内可用）；Nominatim 为 OSM 官方服务，墙内可能超时。',

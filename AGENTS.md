@@ -67,12 +67,13 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 | `geo_search.dart` | Photon 搜索 searchAddress / 反向 reverseAddress |
 | `tile_cache.dart` | 瓦片磁盘缓存 |
 | `location_service.dart` | 安卓定位通道封装 + `recordingProvider`（RecordingNotifier 记录会话，恢复/停止，无暂停）；Windows 不 watch |
-| `views/map_page.dart` | 地图主页面（核心，改动最多）；安卓含蓝点、记录浮层（左上按钮/右上信息条/右下回位）、实时轨迹层 |
+| `views/map_page.dart` | 地图主页面（核心，改动最多）；安卓含蓝点、记录浮层（左上按钮/右上信息条/右下回位）、实时轨迹层；按设置叠加经纬度网格 |
+| `views/latlon_grid.dart` | 经纬度网格图层（`LatLonGridLayer`，步长随缩放自适应 + 度数标注；`gridStepDeg`/`gridLabel` 纯函数可测） |
 | `views/dialogs.dart` | 全部表单对话框（地点/路径/行程/人）；`pickValueDialog` 年/月选择器；`showRecordSaveDialog` 轨迹保存 |
 | `views/timeline_page.dart` | 时间线（长期地点+行程混合，`buildTimelineItems` 纯函数可测） |
 | `views/trip_detail_page.dart` | 行程详情（说明内联编辑、按日期分组、组内手动调序 orderIds；统计含记录里程+推算里程） |
 | `views/person_shell.dart` | 主壳（Tab 地图/时间线/统计）+ `mapPageActionProvider`（跨页定位地图） |
-| `views/stats_page.dart` / `settings_page.dart` / `widgets.dart` | 统计 / 设置（瓦片源即时生效、清除瓦片缓存、数据目录）/ 公共组件（`pickImageBytes` 分平台） |
+| `views/stats_page.dart` / `settings_page.dart` / `widgets.dart` | 统计 / 设置（瓦片源即时生效、清除瓦片缓存、经纬度网格开关、数据目录）/ 公共组件（`pickImageBytes` 分平台） |
 | `driver_main.dart` | MCP 测试入口（见下） |
 
 ## 数据模型要点

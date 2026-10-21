@@ -387,3 +387,14 @@ Future<void> setTileUrl(String url) async {
 
 /// 设置：地址搜索服务（photon / nominatim）。
 final geocodeServiceProvider = FutureProvider<String>((ref) => geocodeService());
+
+/// 设置：地图上是否显示经纬度网格（默认关闭）。
+final latLonGridProvider = FutureProvider<bool>((ref) async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getBool('latLonGrid') ?? false;
+});
+
+Future<void> setLatLonGrid(bool on) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setBool('latLonGrid', on);
+}

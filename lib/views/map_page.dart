@@ -16,6 +16,7 @@ import '../models.dart';
 import '../providers.dart';
 import '../tile_cache.dart';
 import 'dialogs.dart';
+import 'latlon_grid.dart';
 import 'person_shell.dart';
 import 'widgets.dart';
 
@@ -1094,6 +1095,8 @@ class _MapPageState extends ConsumerState<MapPage>
                   darkModeTilesContainerBuilder(context, tileLayer)
                 else
                   tileLayer,
+                if (ref.watch(latLonGridProvider).maybeWhen(data: (v) => v, orElse: () => false))
+                  LatLonGridLayer(color: dark ? Colors.white : Colors.black),
                 ..._buildLayers(people, containers, rec),
                 // 比例尺：安卓右下角有缩放按钮，上移避让；深色模式瓦片反色，用白字
               Scalebar(
