@@ -65,7 +65,7 @@ class EventDetailPage extends ConsumerWidget {
                 icon: const Icon(Icons.delete_outline),
                 tooltip: '删除长期地点',
                 onPressed: () async {
-                  final ok = await confirmDialog(context, '删除长期地点', '确定删除该长期地点？');
+                  final ok = await confirmDialog(context, '删除长期地点', '确定删除该长期地点？', destructive: true);
                   if (!ok) return;
                   if (tripId == null) {
                     await notifier.deleteLifeWaypoint(w.id);

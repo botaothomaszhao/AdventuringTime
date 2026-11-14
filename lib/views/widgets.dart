@@ -84,12 +84,47 @@ final mediaFileProvider = FutureProvider.family<File?, (String, String)>((ref, a
 String fmtDate(DateTime? t) =>
     t == null ? '—' : '${t.year}年${t.month}月${t.day}日';
 
-/// 大图预览对话框。
-void showMediaPreview(BuildContext context, String personId, String mediaId) {
+/// 大图预览对话框。caption 在图下标注来源，提供 onOpen 时可点击跳转来源的编辑弹窗。
+void showMediaPreview(
+  BuildContext context,
+  String personId,
+  String mediaId, {
+  String? caption,
+  VoidCallback? onOpen,
+}) {
   showDialog(
     context: context,
-    builder: (_) => Dialog(
-      child: MediaImage(personId: personId, mediaId: mediaId, height: 400, fit: BoxFit.contain),
+    builder: (c) => Dialog(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          MediaImage(
+            personId: personId,
+            mediaId: mediaId,
+            height: 400,
+            fit: BoxFit.contain,
+          ),
+          if (caption != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+              child: onOpen == null
+                  ? Text(
+                      caption,
+                      style: TextStyle(
+                        color: Theme.of(c).colorScheme.onSurfaceVariant,
+                      ),
+                    )
+                  : TextButton.icon(
+                      onPressed: () {
+                        Navigator.pop(c);
+                        onOpen();
+                      },
+                      icon: const Icon(Icons.edit_outlined, size: 16),
+                      label: Text(caption),
+                    ),
+            ),
+        ],
+      ),
     ),
   );
 }
@@ -188,16 +223,32 @@ class _InlineTextEditState extends State<InlineTextEdit> {
   }
 }
 
+/// 照片墙中额外引入的照片（如行程内路径/地点的照片）：只读展示，预览时标注来源并可跳转编辑。
+class PhotoWallExtra {
+  final String mediaId;
+  final String label; // 来源描述，如「路径 · xx」
+  final VoidCallback onOpen;
+
+  const PhotoWallExtra({
+    required this.mediaId,
+    required this.label,
+    required this.onOpen,
+  });
+}
+
 /// 照片墙：常驻网格，支持添加/删除/预览。媒体文件的物理清理由页面负责。
+/// extras 与自身照片以浅灰竖线分隔，只读展示。
 class PhotoWall extends ConsumerStatefulWidget {
   final String personId;
   final List<String> mediaIds;
+  final List<PhotoWallExtra> extras;
   final Future<void> Function(List<String> next) onChanged;
 
   const PhotoWall({
     super.key,
     required this.personId,
     required this.mediaIds,
+    this.extras = const [],
     required this.onChanged,
   });
 
@@ -224,7 +275,14 @@ class _PhotoWallState extends ConsumerState<PhotoWall> {
         content: const Text('确定删除该照片？'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('确定')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(c).colorScheme.error,
+              foregroundColor: Theme.of(c).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('确定'),
+          ),
         ],
       ),
     );
@@ -236,6 +294,61 @@ class _PhotoWallState extends ConsumerState<PhotoWall> {
     showMediaPreview(context, widget.personId, id);
   }
 
+  Widget _ownTile(double size, String id) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: GestureDetector(
+                onTap: () => _preview(id),
+                child: MediaImage(personId: widget.personId, mediaId: id),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 2,
+            right: 2,
+            child: GestureDetector(
+              onTap: () => _remove(id),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.black54,
+                  shape: BoxShape.circle,
+                ),
+                padding: const EdgeInsets.all(2),
+                child: const Icon(Icons.close, size: 16, color: Colors.white),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _extraTile(double size, PhotoWallExtra e) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: GestureDetector(
+          onTap: () => showMediaPreview(
+            context,
+            widget.personId,
+            e.mediaId,
+            caption: e.label,
+            onOpen: e.onOpen,
+          ),
+          child: MediaImage(personId: widget.personId, mediaId: e.mediaId),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -243,54 +356,46 @@ class _PhotoWallState extends ConsumerState<PhotoWall> {
       children: [
         const Text('照片墙', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        GridView.count(
-          crossAxisCount: 3,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 6,
-          crossAxisSpacing: 6,
-          children: [
-            for (final id in mediaIds)
-              Stack(
-                children: [
-                  Positioned.fill(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: GestureDetector(
-                        onTap: () => _preview(id),
-                        child: MediaImage(personId: widget.personId, mediaId: id),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final size = (constraints.maxWidth - 12) / 3;
+            return Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final id in mediaIds) _ownTile(size, id),
+                SizedBox(
+                  width: size,
+                  height: size,
+                  child: InkWell(
+                    onTap: _add,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(6),
                       ),
+                      child: const Icon(Icons.add_a_photo_outlined),
                     ),
                   ),
-                  Positioned(
-                    top: 2,
-                    right: 2,
-                    child: GestureDetector(
-                      onTap: () => _remove(id),
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          color: Colors.black54,
-                          shape: BoxShape.circle,
-                        ),
-                        padding: const EdgeInsets.all(2),
-                        child: const Icon(Icons.close, size: 16, color: Colors.white),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            InkWell(
-              onTap: _add,
-              borderRadius: BorderRadius.circular(6),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(6),
                 ),
-                child: const Icon(Icons.add_a_photo_outlined),
-              ),
-            ),
-          ],
+                if (widget.extras.isNotEmpty) ...[
+                  SizedBox(
+                    width: 13,
+                    height: size,
+                    child: Center(
+                      child: Container(
+                        width: 1,
+                        height: size - 12,
+                        color: Theme.of(context).colorScheme.outlineVariant,
+                      ),
+                    ),
+                  ),
+                  for (final e in widget.extras) _extraTile(size, e),
+                ],
+              ],
+            );
+          },
         ),
       ],
     );

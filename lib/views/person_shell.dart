@@ -80,6 +80,7 @@ class _PersonHomeState extends ConsumerState<PersonHome>
           context,
           '删除人物',
           '将连同备份一起物理删除该人物的全部数据，确定？',
+          destructive: true,
         );
         if (ok && currentId != null) {
           await notifier.removePerson(currentId);
@@ -492,6 +493,7 @@ class _BackupDialogState extends ConsumerState<_BackupDialog> {
       context,
       '删除备份',
       '删除备份 $ts？该时间点的版本将不可恢复。',
+      destructive: true,
     );
     if (!ok) return;
     try {

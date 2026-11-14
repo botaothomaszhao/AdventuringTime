@@ -55,6 +55,8 @@ class _Selected {
   final String? tripLabel; // 所属行程跳转标签（卡片下方居中的凸出按钮）
   final VoidCallback? onOpenTrip; // 点击后切到该行程的弹卡
   final String? pathKey; // 'tripId|pathId'，非空时地图上高亮该轨迹
+  final String? waypointId; // 非空时地图上高亮该地点标记
+  final String? tripId; // 非空时地图上高亮整条行程（路径/连接线/地点）
   const _Selected({
     required this.label,
     this.detail,
@@ -64,6 +66,8 @@ class _Selected {
     this.tripLabel,
     this.onOpenTrip,
     this.pathKey,
+    this.waypointId,
+    this.tripId,
   });
 }
 
@@ -598,6 +602,7 @@ class _MapPageState extends ConsumerState<MapPage>
         detail: w.desc == null ? null : Text(w.desc!),
         time: w.time,
         precision: w.timePrecision,
+        waypointId: w.id,
         tripLabel: tripId == null ? null : tripName,
         onOpenTrip: tripId == null
             ? null
@@ -641,6 +646,7 @@ class _MapPageState extends ConsumerState<MapPage>
                   context,
                   '删除',
                   '确定删除该${w.isEvent ? '长期地点' : '地点'}？',
+                  destructive: true,
                 );
                 if (!ok) return;
                 final notifier = ref.read(
@@ -743,7 +749,7 @@ class _MapPageState extends ConsumerState<MapPage>
               leading: const Icon(Icons.delete_outline),
               title: const Text('删除'),
               onTap: () async {
-                final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
+                final ok = await confirmDialog(context, '删除路径', '确定删除该路径？', destructive: true);
                 if (!ok) return;
                 await ref
                     .read(personDataProvider(personId).notifier)
@@ -774,6 +780,7 @@ class _MapPageState extends ConsumerState<MapPage>
         detail: Text(
           '${fmtDate(t.meta.startDate)} 至 ${fmtDate(t.meta.endDate)} · ${stats.placeCount} 个地点 · ${stats.pathCount} 条路径',
         ),
+        tripId: t.meta.id,
         actions: () {
           return [
             ListTile(
@@ -826,6 +833,7 @@ class _MapPageState extends ConsumerState<MapPage>
                   context,
                   '删除行程',
                   '确定删除该行程（含其中地点与路径）？',
+                  destructive: true,
                 );
                 if (!ok) return;
                 await ref
@@ -1258,19 +1266,52 @@ class _MapPageState extends ConsumerState<MapPage>
       final showEvents = showAll || toggles.events;
 
       // 长期地点标记：长期地点开关全显 + 勾选行程的首尾/行程内长期地点（按 id 去重）
+      final selWp = _selected?.waypointId;
       final eventMarkers = <String, Marker>{};
       final placeMarkers = <Marker>[];
-      Marker eventMarker(Waypoint w) => Marker(
+      Marker wpMarker(
+        Waypoint w, {
+        required IconData icon,
+        required Color color,
+        required double size,
+      }) =>
+          Marker(
             point: w.latLng,
             width: 30,
             height: 30,
             alignment: Alignment.topCenter,
-            child: const Icon(
-              Icons.star,
-              color: Color(0xFFE65100),
-              size: 26,
-              shadows: [Shadow(color: Colors.white, blurRadius: 3)],
+            child: Stack(
+              alignment: Alignment.center,
+              clipBehavior: Clip.none,
+              children: [
+                // 选中地点的橙色光圈：与标记框同尺寸（30px），不参与命中判定
+                if (w.id == selWp)
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    child: Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _highlightColor.withValues(alpha: 0.35),
+                      ),
+                    ),
+                  ),
+                Icon(
+                  icon,
+                  color: color,
+                  size: size,
+                  shadows: const [Shadow(color: Colors.white, blurRadius: 3)],
+                ),
+              ],
             ),
+          );
+      Marker eventMarker(Waypoint w) => wpMarker(
+            w,
+            icon: Icons.star,
+            color: const Color(0xFFE65100),
+            size: 26,
           );
       if (showEvents) {
         for (final w in d.life.waypoints) {
@@ -1283,17 +1324,11 @@ class _MapPageState extends ConsumerState<MapPage>
             eventMarkers[w.id] = eventMarker(w);
           } else {
             placeMarkers.add(
-              Marker(
-                point: w.latLng,
-                width: 30,
-                height: 30,
-                alignment: Alignment.topCenter,
-                child: const Icon(
-                  Icons.location_on,
-                  color: Color(0xFF2E7D32),
-                  size: 24,
-                  shadows: [Shadow(color: Colors.white, blurRadius: 3)],
-                ),
+              wpMarker(
+                w,
+                icon: Icons.location_on,
+                color: const Color(0xFF2E7D32),
+                size: 24,
               ),
             );
           }
@@ -1313,8 +1348,9 @@ class _MapPageState extends ConsumerState<MapPage>
         personLayers.add(MarkerLayer(markers: placeMarkers));
       }
 
-      // 路径（勾选行程）；被点击选中的轨迹叠加橙色高亮（与切分一致）
+      // 路径（勾选行程）；被点击选中的轨迹/选中行程的全部轨迹叠加橙色高亮（与切分一致）
       final hlKey = _selected?.pathKey;
+      final selTrip = _selected?.tripId;
       final polylines = <Polyline>[];
       final hlPolylines = <Polyline>[];
       for (final t in visibleTrips) {
@@ -1330,7 +1366,7 @@ class _MapPageState extends ConsumerState<MapPage>
               hitValue: key,
             ),
           );
-          if (key == hlKey) {
+          if (key == hlKey || t.meta.id == selTrip) {
             hlPolylines.add(
               Polyline<String>(
                 points: pts,
@@ -1352,31 +1388,43 @@ class _MapPageState extends ConsumerState<MapPage>
       // 连接线：长期地点/全部模式画完整轨迹线（行程段用行程色、长期地点间灰色）；
       // 仅行程模式画勾选行程的内部连接线（行程色）
       final segs = <Polyline>[];
-      Polyline connSeg(LifeSeg s, Color color) => Polyline(
+      final hlSegs = <Polyline>[];
+      Polyline connSeg(LifeSeg s, Color color, {double width = 2}) => Polyline(
             points: [s.from, s.to],
-            strokeWidth: 2,
+            strokeWidth: width,
             color: color,
             pattern: StrokePattern.dashed(segments: const [8, 6]),
           );
+      // 选中行程的连接线同样叠加橙色高亮
+      void addSeg(LifeSeg s, Color color) {
+        segs.add(connSeg(s, color));
+        if (s.tripId != null && s.tripId == selTrip) {
+          hlSegs.add(connSeg(s, _highlightColor.withValues(alpha: 0.6), width: 4));
+        }
+      }
+
       if (showEvents) {
         for (final s in buildLifePath(d.life.events, d.trips).segs) {
           final tripId = s.tripId;
           if (tripId == null) {
             segs.add(connSeg(s, const Color(0xFF9E9E9E)));
           } else if (visibleConnTrips.contains(tripId)) {
-            segs.add(connSeg(s, tripColor(tripId)));
+            addSeg(s, tripColor(tripId));
           }
         }
       } else {
         for (final t in visibleTrips) {
           final color = tripColor(t.meta.id);
           for (final s in tripInnerSegs(t, d.life.events)) {
-            segs.add(connSeg(s, color));
+            addSeg(s, color);
           }
         }
       }
       if (segs.isNotEmpty) {
         personLayers.add(PolylineLayer(polylines: segs));
+      }
+      if (hlSegs.isNotEmpty) {
+        personLayers.add(PolylineLayer(polylines: hlSegs));
       }
 
       layers.addAll(personLayers);
@@ -1712,7 +1760,7 @@ class _MapPageState extends ConsumerState<MapPage>
     String tripId,
     String personId,
   ) async {
-    final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
+    final ok = await confirmDialog(context, '删除路径', '确定删除该路径？', destructive: true);
     if (!ok) return;
     await ref
         .read(personDataProvider(personId).notifier)

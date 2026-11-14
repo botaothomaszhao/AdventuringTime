@@ -951,8 +951,13 @@ Future<bool> showSplitConfirmDialog(
   return ok ?? false;
 }
 
-/// 通用确认对话框。
-Future<bool> confirmDialog(BuildContext context, String title, String message) async {
+/// 通用确认对话框。destructive 为 true 时确定按钮标红（删除类操作）。
+Future<bool> confirmDialog(
+  BuildContext context,
+  String title,
+  String message, {
+  bool destructive = false,
+}) async {
   final ok = await showDialog<bool>(
     context: context,
     builder: (c) => AlertDialog(
@@ -960,7 +965,16 @@ Future<bool> confirmDialog(BuildContext context, String title, String message) a
       content: Text(message),
       actions: [
         TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('取消')),
-        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('确定')),
+        FilledButton(
+          style: destructive
+              ? FilledButton.styleFrom(
+                  backgroundColor: Theme.of(c).colorScheme.error,
+                  foregroundColor: Theme.of(c).colorScheme.onError,
+                )
+              : null,
+          onPressed: () => Navigator.pop(c, true),
+          child: const Text('确定'),
+        ),
       ],
     ),
   );

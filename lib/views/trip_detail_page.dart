@@ -33,6 +33,26 @@ class TripDetailPage extends ConsumerWidget {
         final grouped = _groupByDate(trip);
         final notifier = ref.read(personDataProvider(personId).notifier);
 
+        // 行程内路径/地点的照片，按列表展示顺序只读并入照片墙。
+        final extras = <PhotoWallExtra>[
+          for (final g in grouped)
+            for (final item in g.items)
+              if (item.data is PathData)
+                for (final id in (item.data as PathData).mediaIds)
+                  PhotoWallExtra(
+                    mediaId: id,
+                    label: '路径 · ${(item.data as PathData).name}',
+                    onOpen: () => _editItem(context, ref, item.data),
+                  )
+              else
+                for (final id in (item.data as Waypoint).mediaIds)
+                  PhotoWallExtra(
+                    mediaId: id,
+                    label: '地点 · ${(item.data as Waypoint).name}',
+                    onOpen: () => _editItem(context, ref, item.data),
+                  ),
+        ];
+
         Future<void> saveMeta() async {
           trip.meta.updatedAt = DateTime.now();
           await notifier.saveTripMeta(trip.meta);
@@ -86,6 +106,7 @@ class TripDetailPage extends ConsumerWidget {
                     context,
                     '删除行程',
                     '确定删除该行程（含其中地点与路径）？',
+                    destructive: true,
                   );
                   if (!ok) return;
                   await notifier.deleteTrip(tripId);
@@ -238,42 +259,16 @@ class TripDetailPage extends ConsumerWidget {
                               ),
                             ],
                           ),
-                    onTap: () async {
-                      if (item.data is PathData) {
-                        final p = item.data as PathData;
-                        final before = List<String>.of(p.mediaIds);
-                        final form = await showPathDialog(
-                          context,
-                          personId: personId,
-                          existing: p,
-                          onDelete: () => _deletePathFromPage(context, ref, p, tripId),
-                        );
-                        if (form == null) return;
-                        form.applyTo(p);
-                        p.updatedAt = DateTime.now();
-                        await notifier.saveTripPath(tripId, p);
-                        await cleanupRemovedMedia(ref, personId, before, p.mediaIds);
-                      } else {
-                        final w = item.data as Waypoint;
-                        final before = List<String>.of(w.mediaIds);
-                        final form = await showWaypointDialog(
-                          context,
-                          personId: personId,
-                          existing: w,
-                          tripId: tripId,
-                          onDelete: () => _deleteWaypointFromPage(context, ref, w, tripId),
-                        );
-                        if (form == null) return;
-                        form.applyTo(w);
-                        w.updatedAt = DateTime.now();
-                        await notifier.saveTripWaypoint(tripId, w);
-                        await cleanupRemovedMedia(ref, personId, before, w.mediaIds);
-                      }
-                    },
+                    onTap: () => _editItem(context, ref, item.data),
                   ),
               ],
               const SizedBox(height: 16),
-              PhotoWall(personId: personId, mediaIds: trip.meta.mediaIds, onChanged: setPhotos),
+              PhotoWall(
+                personId: personId,
+                mediaIds: trip.meta.mediaIds,
+                extras: extras,
+                onChanged: setPhotos,
+              ),
             ],
           ),
         );
@@ -368,6 +363,40 @@ class TripDetailPage extends ConsumerWidget {
     await ref.read(personDataProvider(personId).notifier).reorderTripItem(tripId, id, up);
   }
 
+  /// 打开路径/地点编辑弹窗并保存（列表项与照片墙来源跳转共用）。
+  Future<void> _editItem(BuildContext context, WidgetRef ref, Object item) async {
+    final notifier = ref.read(personDataProvider(personId).notifier);
+    if (item is PathData) {
+      final before = List<String>.of(item.mediaIds);
+      final form = await showPathDialog(
+        context,
+        personId: personId,
+        existing: item,
+        onDelete: () => _deletePathFromPage(context, ref, item, tripId),
+      );
+      if (form == null) return;
+      form.applyTo(item);
+      item.updatedAt = DateTime.now();
+      await notifier.saveTripPath(tripId, item);
+      await cleanupRemovedMedia(ref, personId, before, item.mediaIds);
+    } else {
+      final w = item as Waypoint;
+      final before = List<String>.of(w.mediaIds);
+      final form = await showWaypointDialog(
+        context,
+        personId: personId,
+        existing: w,
+        tripId: tripId,
+        onDelete: () => _deleteWaypointFromPage(context, ref, w, tripId),
+      );
+      if (form == null) return;
+      form.applyTo(w);
+      w.updatedAt = DateTime.now();
+      await notifier.saveTripWaypoint(tripId, w);
+      await cleanupRemovedMedia(ref, personId, before, w.mediaIds);
+    }
+  }
+
   /// 地点编辑对话框内的删除：确认后删除并关闭对话框。
   Future<void> _deleteWaypointFromPage(
     BuildContext context,
@@ -375,7 +404,7 @@ class TripDetailPage extends ConsumerWidget {
     Waypoint w,
     String tripId,
   ) async {
-    final ok = await confirmDialog(context, '删除地点', '确定删除该地点？');
+    final ok = await confirmDialog(context, '删除地点', '确定删除该地点？', destructive: true);
     if (!ok) return;
     await ref.read(personDataProvider(personId).notifier).deleteTripWaypoint(tripId, w.id);
     final nd = ref.read(personDataProvider(personId)).valueOrNull;
@@ -400,7 +429,7 @@ class TripDetailPage extends ConsumerWidget {
     PathData p,
     String tripId,
   ) async {
-    final ok = await confirmDialog(context, '删除路径', '确定删除该路径？');
+    final ok = await confirmDialog(context, '删除路径', '确定删除该路径？', destructive: true);
     if (!ok) return;
     await ref.read(personDataProvider(personId).notifier).deleteTripPath(tripId, p.id);
     final nd = ref.read(personDataProvider(personId)).valueOrNull;
