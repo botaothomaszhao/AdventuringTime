@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -19,7 +20,7 @@ import '../providers.dart';
 import '../tile_cache.dart';
 import 'dialogs.dart';
 import 'latlon_grid.dart';
-import 'person_shell.dart';
+import 'map_actions.dart';
 import 'widgets.dart';
 
 /// 弹卡下方"倒凸"行程跳转按钮的高度；用于让弹卡保持原位、按钮向下突出。
@@ -852,6 +853,80 @@ class _MapPageState extends ConsumerState<MapPage>
     if (mounted) setState(() => _selected = null);
   }
 
+  /// 跨页定位：选中目标并把相机移到其可见范围（地点居中，路径/行程缩放到完整可见）。
+  void _locateOnMap(MapLocateRequest req, String personId) {
+    final d = _personData();
+    if (d == null) return;
+    switch (req.kind) {
+      case MapLocateKind.waypoint:
+        final w = _findWaypoint(d, req.id);
+        if (w == null) return;
+        final tripId = d.containerOf(w).$1;
+        _revealTarget(personId, d, tripId: tripId, lifeEvent: tripId == null);
+        _selectWaypoint(w, tripId, personId);
+        _mapCtrl.move(w.latLng, 16);
+      case MapLocateKind.path:
+        for (final t in d.trips) {
+          final p = t.gpx.pathById(req.id);
+          if (p == null) continue;
+          _revealTarget(personId, d, tripId: t.meta.id);
+          _selectPath(p, t.meta.id, personId);
+          _fitCoords([for (final pt in p.points) pt.latLng]);
+          return;
+        }
+      case MapLocateKind.trip:
+        final t = d.tripById(req.id);
+        if (t == null) return;
+        _revealTarget(personId, d, tripId: t.meta.id);
+        _selectTrip(t, personId);
+        final coords = <LatLng>[
+          for (final w in t.gpx.waypoints) w.latLng,
+          for (final p in t.gpx.paths) ...p.points.map((pt) => pt.latLng),
+        ];
+        for (final eid in [t.meta.startEventId, t.meta.endEventId]) {
+          final e = _findWaypoint(d, eid);
+          if (e != null) coords.add(e.latLng);
+        }
+        _fitCoords(coords);
+    }
+  }
+
+  /// 定位前显式打开目标所在图层：图层筛选不应把被定位的对象藏起来。
+  void _revealTarget(
+    String personId,
+    PersonData d, {
+    String? tripId,
+    bool lifeEvent = false,
+  }) {
+    final toggles = _togglesOf(personId);
+    if (_allOn(toggles, d.trips)) return;
+    if (lifeEvent) toggles.events = true;
+    if (tripId != null) toggles.tripIds.add(tripId);
+  }
+
+  /// 缩放到坐标全集可见，底部留出弹卡高度。
+  void _fitCoords(List<LatLng> coords) {
+    if (coords.isEmpty) return;
+    // 经度按首个点展开：每个点取 ±180° 内最近的等价经度，跨 180° 经线的
+    // 轨迹/行程因此是连续的，相机也不会绕到世界另一侧去装下整条轨迹。
+    final lon0 = coords.first.longitude;
+    final unwrapped = [
+      for (final p in coords)
+        LatLng(
+          p.latitude,
+          p.longitude + 360 * ((lon0 - p.longitude) / 360).round(),
+        ),
+    ];
+    final fitted = CameraFit.coordinates(
+      coordinates: unwrapped,
+      // 底部留出弹卡高度（内容更偏上），左右上留白让整体再小一圈
+      padding: const EdgeInsets.fromLTRB(48, 32, 48, 320),
+      maxZoom: 16,
+    ).fit(_mapCtrl.camera);
+    // 再退半级，目标不顶到留白边缘
+    _mapCtrl.move(fitted.center, math.max(fitted.zoom - 0.5, _minZoom));
+  }
+
   // ---------- 地图事件 ----------
 
   /// Ctrl+鼠标左键单击复位正北：flutter_map 自带的 setNorthOnClick 是「正北指向
@@ -1080,10 +1155,12 @@ class _MapPageState extends ConsumerState<MapPage>
     final pid = widget.personId;
     if (pid != null) {
       ref.listen(mapPageActionProvider(pid), (prev, next) {
-        if (prev == null) return;
-        if (next.requestId > prev.requestId && next.focus != null) {
+        if (prev == null || next.requestId <= prev.requestId) return;
+        if (next.locate != null) {
+          _locateOnMap(next.locate!, pid);
+        } else if (next.focus != null) {
           _mapCtrl.move(next.focus!, next.zoom);
-        } else if (next.requestId > prev.requestId && next.showLayers) {
+        } else if (next.showLayers) {
           _showLayerPanel();
         }
       });

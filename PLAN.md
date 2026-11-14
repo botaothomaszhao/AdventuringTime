@@ -131,6 +131,12 @@ data/people/<personId>/
 - 步长按每度像素数从 `30/20/10/5/2/1/0.5/0.2/0.1/0.05/0.02/0.01/0.005/0.002/0.001°` 中取屏幕间距 ≤160px 的最小档位；标注为 `36°N` / `120°E`，小数位随档位 0~3 位
 - 核心纯函数 `gridStepDeg` / `gridLabel` 在 `views/latlon_grid.dart`，单测见 `test/latlon_grid_test.dart`
 
+### 4.7 跨页地图定位（界面通道，不落盘）
+
+- 行程详情页、长期地点详情页与地点/路径编辑弹窗的「在地图上查看」经 `views/map_actions.dart` 的 `mapPageActionProvider` 发请求，只带类型 + id，收到时再从当前数据解析
+- 壳收到定位请求后切到地图 tab；地图页把目标所在行程/长期地点图层显式打开（图层筛选不藏起被定位对象），复用 `_selectWaypoint` / `_selectPath` / `_selectTrip` 出弹卡与高亮
+- 相机：地点居中（zoom 16）；路径与行程用 `CameraFit.coordinates` 缩放到坐标全集可见（padding 底部留出弹卡高度、左右上留白，再退半级；跨 180° 经线时经度按首个点取最近等价经度展开，避免绕到世界另一侧），maxZoom 16
+
 ## 5. 局域网同步协议
 
 ### 5.1 形态

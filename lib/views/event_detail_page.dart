@@ -5,6 +5,7 @@ import '../lifecycle.dart';
 import '../models.dart';
 import '../providers.dart';
 import 'dialogs.dart';
+import 'map_actions.dart';
 import 'widgets.dart';
 
 /// 长期地点详情：内联编辑名称/说明/时间，删除，底部常驻照片墙。
@@ -57,29 +58,41 @@ class EventDetailPage extends ConsumerWidget {
           }
         }
 
+        Future<void> deleteWaypoint() async {
+          final ok = await confirmDialog(
+            context,
+            '删除长期地点',
+            '确定删除该长期地点？',
+            destructive: true,
+          );
+          if (!ok) return;
+          if (tripId == null) {
+            await notifier.deleteLifeWaypoint(w.id);
+          } else {
+            await notifier.deleteTripWaypoint(tripId, w.id);
+          }
+          final nd = ref.read(personDataProvider(personId)).valueOrNull;
+          if (nd != null) {
+            for (final id in w.mediaIds) {
+              await deleteMediaIfUnused(ref, personId, id,
+                  waypoints: _allWaypoints(nd), paths: _allPaths(nd));
+            }
+          }
+          if (context.mounted) Navigator.pop(context);
+        }
+
         return Scaffold(
           appBar: AppBar(
             title: Text(w.name.isEmpty ? '（未命名）' : w.name),
             actions: [
               IconButton(
-                icon: const Icon(Icons.delete_outline),
-                tooltip: '删除长期地点',
-                onPressed: () async {
-                  final ok = await confirmDialog(context, '删除长期地点', '确定删除该长期地点？', destructive: true);
-                  if (!ok) return;
-                  if (tripId == null) {
-                    await notifier.deleteLifeWaypoint(w.id);
-                  } else {
-                    await notifier.deleteTripWaypoint(tripId, w.id);
-                  }
-                  final nd = ref.read(personDataProvider(personId)).valueOrNull;
-                  if (nd != null) {
-                    for (final id in w.mediaIds) {
-                      await deleteMediaIfUnused(ref, personId, id,
-                          waypoints: _allWaypoints(nd), paths: _allPaths(nd));
-                    }
-                  }
-                  if (context.mounted) Navigator.pop(context);
+                icon: const Icon(Icons.map_outlined),
+                tooltip: '在地图上查看',
+                onPressed: () {
+                  ref
+                      .read(mapPageActionProvider(personId).notifier)
+                      .locateWaypoint(w.id);
+                  Navigator.popUntil(context, (r) => r.isFirst);
                 },
               ),
             ],
@@ -170,6 +183,15 @@ class EventDetailPage extends ConsumerWidget {
               ),
               const SizedBox(height: 16),
               PhotoWall(personId: personId, mediaIds: w.mediaIds, onChanged: setPhotos),
+              const SizedBox(height: 24),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.error,
+                ),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('删除长期地点'),
+                onPressed: deleteWaypoint,
+              ),
             ],
           ),
         );

@@ -72,7 +72,8 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 | `views/dialogs.dart` | 全部表单对话框（地点/路径/行程/人）；`pickValueDialog` 年/月选择器；`showRecordSaveDialog` 轨迹保存 |
 | `views/timeline_page.dart` | 时间线（长期地点+行程混合，`buildTimelineItems` 纯函数可测） |
 | `views/trip_detail_page.dart` | 行程详情（说明内联编辑、按日期分组、组内手动调序 orderIds；统计含记录里程+推算里程） |
-| `views/person_shell.dart` | 主壳（Tab 地图/时间线/统计）+ `mapPageActionProvider`（跨页定位地图） |
+| `views/person_shell.dart` | 主壳（Tab 地图/时间线/统计） |
+| `views/map_actions.dart` | 跨页地图动作通道（`mapPageActionProvider`：定位坐标、打开图层面板、在地图上选中地点/路径/行程） |
 | `views/stats_page.dart` / `settings_page.dart` / `widgets.dart` | 统计 / 设置（瓦片源即时生效、清除瓦片缓存、经纬度网格开关、数据目录）/ 公共组件（`pickImageBytes` 分平台） |
 | `driver_main.dart` | MCP 测试入口（见下） |
 
@@ -88,6 +89,7 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 ## 关键业务流程
 
 - **地图点击命中** `map_page.dart _openAt`：点击位置与可见地点/路径/连接线做屏幕像素距离检测。**地点/长期地点最高优先**（以图标中心为圆心，阈值 20px；图标中心位于实际位置上方 15px），其次路径（阈值 10px，打开路径卡片），再次行程连接线（打开行程卡片）。不依赖 hover，勿改回 hitNotifier 方案
+- **跳转地图** `views/map_actions.dart`：详情页/地点与路径弹窗发 `locateWaypoint/locatePath/locateTrip`（只带类型+id），壳收到后切到地图 tab；地图页从当前数据解析对象、显式打开其图层（行程勾选/长期地点开关），复用 `_selectWaypoint/_selectPath/_selectTrip` 出弹卡高亮，地点 `move` 到 16 级，路径/行程用 `CameraFit.coordinates` 缩放到完整可见（底部留弹卡高度、再退半级；跨 180° 经线按最近等价经度展开）
 - **轨迹线** `buildLifePath`：长期地点+行程按时间排序；行程内部路径/地点/起点长期地点按时间相连、**最后连回终点**；段带 `tripId` 供点击打开行程。改它必跑 `test/lifecycle_test.dart`
 - **添加地点**：地图落点 → 对话框（名称可异步反向地理编码、到达时间必填、长期地点或选所属行程）。从行程卡片"添加地点"进入时预选行程并预填时间（行程开始或最后地点/路径时间）
 - **切分轨迹**：GPS 轨迹（点数 ≥4）路径卡片「切分轨迹」→ 切分模式点轨迹附近吸附最近采样点（两侧各需 ≥2 点）→ 确认框预览前后两段名称/长度/速度 → 确认。前段留原轨迹（说明/照片/起终点引用不变，仅截点；默认时间名按新结束时间重生成），后段为新轨迹（名称按新起始时间用录制同款格式生成、沿用原说明、无照片），同行程；`splitTripPath` 一次落盘并维护 orderIds。核心纯函数 `splitGpsPath` / `defaultGpsTrackName` 在 lifecycle.dart

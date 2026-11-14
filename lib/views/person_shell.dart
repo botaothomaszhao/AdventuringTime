@@ -3,13 +3,13 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:latlong2/latlong.dart';
 
 import '../models.dart';
 import '../providers.dart';
 import '../storage.dart';
 import '../transfer.dart';
 import 'dialogs.dart';
+import 'map_actions.dart';
 import 'map_page.dart';
 import 'stats_page.dart';
 import 'timeline_page.dart';
@@ -196,6 +196,13 @@ class _PersonHomeState extends ConsumerState<PersonHome>
         .maybeWhen(data: (l) => l, orElse: () => <Person>[]);
     final currentId = ref.watch(currentPersonIdProvider);
     final current = people.where((p) => p.id == currentId).firstOrNull;
+    // 跨页"在地图上查看"：切到地图 tab，相机与选中由地图页自己处理
+    if (currentId != null) {
+      ref.listen(mapPageActionProvider(currentId), (prev, next) {
+        if (prev == null || next.requestId <= prev.requestId) return;
+        if (next.locate != null) _tab.index = 0;
+      });
+    }
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -577,38 +584,5 @@ class _BackupDialogState extends ConsumerState<_BackupDialog> {
         ),
       ),
     );
-  }
-}
-
-/// 地图页与外部（壳/时间线/行程详情）的跨页动作通道：地图定位、打开图层面板。
-class MapPageAction {
-  final int requestId;
-  final LatLng? focus;
-  final bool showLayers;
-  final double zoom;
-
-  MapPageAction(
-    this.requestId, [
-    this.focus,
-    this.showLayers = false,
-    this.zoom = 12,
-  ]);
-}
-
-final mapPageActionProvider =
-    NotifierProvider.family<MapPageActionNotifier, MapPageAction, String>(
-      MapPageActionNotifier.new,
-    );
-
-class MapPageActionNotifier extends FamilyNotifier<MapPageAction, String> {
-  @override
-  MapPageAction build(String personId) => MapPageAction(0);
-
-  void focusOn(LatLng latlng, {double zoom = 12}) {
-    state = MapPageAction(state.requestId + 1, latlng, false, zoom);
-  }
-
-  void requestShowLayers() {
-    state = MapPageAction(state.requestId + 1, null, true);
   }
 }

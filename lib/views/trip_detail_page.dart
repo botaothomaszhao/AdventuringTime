@@ -5,6 +5,7 @@ import '../lifecycle.dart';
 import '../models.dart';
 import '../providers.dart';
 import 'dialogs.dart';
+import 'map_actions.dart';
 import 'widgets.dart';
 
 /// 行程详情：内联编辑基本信息与起终点、统计摘要、按日期分组的路径与地点、底部照片墙。
@@ -99,18 +100,13 @@ class TripDetailPage extends ConsumerWidget {
             title: Text(trip.meta.name.isEmpty ? '（未命名行程）' : trip.meta.name),
             actions: [
               IconButton(
-                icon: const Icon(Icons.delete_outline),
-                tooltip: '删除行程',
-                onPressed: () async {
-                  final ok = await confirmDialog(
-                    context,
-                    '删除行程',
-                    '确定删除该行程（含其中地点与路径）？',
-                    destructive: true,
-                  );
-                  if (!ok) return;
-                  await notifier.deleteTrip(tripId);
-                  if (context.mounted) Navigator.pop(context);
+                icon: const Icon(Icons.map_outlined),
+                tooltip: '在地图上查看',
+                onPressed: () {
+                  ref
+                      .read(mapPageActionProvider(personId).notifier)
+                      .locateTrip(tripId);
+                  Navigator.popUntil(context, (r) => r.isFirst);
                 },
               ),
             ],
@@ -268,6 +264,25 @@ class TripDetailPage extends ConsumerWidget {
                 mediaIds: trip.meta.mediaIds,
                 extras: extras,
                 onChanged: setPhotos,
+              ),
+              const SizedBox(height: 24),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.error,
+                ),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('删除行程'),
+                onPressed: () async {
+                  final ok = await confirmDialog(
+                    context,
+                    '删除行程',
+                    '确定删除该行程（含其中地点与路径）？',
+                    destructive: true,
+                  );
+                  if (!ok) return;
+                  await notifier.deleteTrip(tripId);
+                  if (context.mounted) Navigator.pop(context);
+                },
               ),
             ],
           ),

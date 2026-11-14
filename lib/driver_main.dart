@@ -12,7 +12,7 @@ import 'models.dart';
 import 'providers.dart';
 import 'storage.dart';
 import 'views/dialogs.dart';
-import 'views/person_shell.dart';
+import 'views/map_actions.dart';
 
 /// MCP 测试入口：
 /// 1. 启用 flutter driver 扩展（支持 tap/输入等标准命令）
@@ -256,7 +256,19 @@ Future<String> _handleCommand(String? message) async {
           if (c is Text && snackText == null) snackText = c.data;
         } else if (e.widget is AlertDialog) {
           final t = (e.widget as AlertDialog).title;
-          if (t is Text && dialogTitle == null) dialogTitle = t.data;
+          if (dialogTitle == null) {
+            if (t is Text) {
+              dialogTitle = t.data;
+            } else if (t is Row) {
+              for (final c in t.children) {
+                final w = c is Expanded ? c.child : c;
+                if (w is Text) {
+                  dialogTitle = w.data;
+                  break;
+                }
+              }
+            }
+          }
         }
         e.visitChildren(walk);
       }

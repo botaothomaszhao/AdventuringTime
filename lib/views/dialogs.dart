@@ -6,6 +6,7 @@ import '../geo_search.dart';
 import '../lifecycle.dart';
 import '../models.dart';
 import '../providers.dart';
+import 'map_actions.dart';
 import 'widgets.dart';
 
 /// 编辑对话框集合：地点/长期地点、路径、行程、人。
@@ -270,7 +271,23 @@ class _WaypointDialogState extends ConsumerState<_WaypointDialog> {
   Widget build(BuildContext context) {
     final pos = widget.existing?.latLng ?? widget.initialPos;
     return AlertDialog(
-      title: Text(widget.existing == null ? '新增地点' : '编辑'),
+      title: Row(
+        children: [
+          Expanded(child: Text(widget.existing == null ? '新增地点' : '编辑')),
+          if (widget.existing != null)
+            IconButton(
+              icon: const Icon(Icons.map_outlined),
+              tooltip: '在地图上查看',
+              onPressed: () {
+                final id = widget.existing!.id;
+                Navigator.popUntil(context, (r) => r.isFirst);
+                ref
+                    .read(mapPageActionProvider(widget.personId).notifier)
+                    .locateWaypoint(id);
+              },
+            ),
+        ],
+      ),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -550,7 +567,22 @@ class _PathDialogState extends ConsumerState<_PathDialog> {
   Widget build(BuildContext context) {
     final firstTime = widget.existing.points.firstOrNull?.time;
     return AlertDialog(
-      title: const Text('编辑路径'),
+      title: Row(
+        children: [
+          const Expanded(child: Text('编辑路径')),
+          IconButton(
+            icon: const Icon(Icons.map_outlined),
+            tooltip: '在地图上查看',
+            onPressed: () {
+              final id = widget.existing.id;
+              Navigator.popUntil(context, (r) => r.isFirst);
+              ref
+                  .read(mapPageActionProvider(widget.personId).notifier)
+                  .locatePath(id);
+            },
+          ),
+        ],
+      ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
