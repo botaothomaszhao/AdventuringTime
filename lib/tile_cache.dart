@@ -28,12 +28,19 @@ Future<void> clearTileCache(Directory cacheDir) async {
 class DiskCachedTileProvider extends TileProvider {
   final Directory cacheDir;
 
+  /// 开启后，缓存瓦片若来自其他瓦片源（[TileCoordinates] 旁的 `.src` 标记不符），
+  /// 浏览到时重新下载并覆盖；关闭时缓存瓦片始终优先。
+  bool overwriteMismatched = false;
+
   DiskCachedTileProvider({required this.cacheDir});
 
   @override
   bool get supportsCancelLoading => false;
 
   File _fileFor(TileCoordinates c) => File(p.join(cacheDir.path, '${c.z}', '${c.x}', '${c.y}.png'));
+
+  /// 记录瓦片下载时所用瓦片源（URL 模板）的标记文件。
+  File _sourceFileFor(TileCoordinates c) => File(p.join(cacheDir.path, '${c.z}', '${c.x}', '${c.y}.src'));
 
   String _urlFor(TileCoordinates c, TileLayer options) {
     var url = options.urlTemplate ?? '';
@@ -54,7 +61,10 @@ class DiskCachedTileProvider extends TileProvider {
   ImageProvider getImage(TileCoordinates coordinates, TileLayer options) {
     return _CachedTileImage(
       url: _urlFor(coordinates, options),
+      source: options.urlTemplate ?? '',
       cacheFile: _fileFor(coordinates),
+      sourceFile: _sourceFileFor(coordinates),
+      overwriteMismatched: overwriteMismatched,
       headers: headers,
     );
   }
@@ -62,10 +72,20 @@ class DiskCachedTileProvider extends TileProvider {
 
 class _CachedTileImage extends ImageProvider<_CachedTileImage> {
   final String url;
+  final String source;
   final File cacheFile;
+  final File sourceFile;
+  final bool overwriteMismatched;
   final Map<String, String> headers;
 
-  _CachedTileImage({required this.url, required this.cacheFile, this.headers = const {}});
+  _CachedTileImage({
+    required this.url,
+    required this.source,
+    required this.cacheFile,
+    required this.sourceFile,
+    required this.overwriteMismatched,
+    this.headers = const {},
+  });
 
   @override
   Future<_CachedTileImage> obtainKey(ImageConfiguration configuration) async => this;
@@ -75,18 +95,33 @@ class _CachedTileImage extends ImageProvider<_CachedTileImage> {
     return OneFrameImageStreamCompleter(_load(decode));
   }
 
+  /// 缓存瓦片是否来自其他源（无 `.src` 标记的旧缓存视为未知来源）。
+  Future<bool> _isOtherSource() async {
+    if (!await sourceFile.exists()) return true;
+    return (await sourceFile.readAsString()).trim() != source.trim();
+  }
+
   Future<ImageInfo> _load(ImageDecoderCallback decode) async {
+    final cached = await cacheFile.exists();
+    final stale = cached && overwriteMismatched && await _isOtherSource();
     List<int> bytes;
-    if (await cacheFile.exists()) {
+    if (cached && !stale) {
       bytes = await cacheFile.readAsBytes();
     } else {
-      final resp = await http.get(Uri.parse(url), headers: headers);
-      if (resp.statusCode != 200) {
-        throw Exception('tile http ${resp.statusCode}: $url');
+      try {
+        final resp = await http.get(Uri.parse(url), headers: headers);
+        if (resp.statusCode != 200) {
+          throw Exception('tile http ${resp.statusCode}: $url');
+        }
+        bytes = resp.bodyBytes;
+        await cacheFile.parent.create(recursive: true);
+        await cacheFile.writeAsBytes(bytes, flush: true);
+        await sourceFile.writeAsString(source, flush: true);
+      } catch (_) {
+        // 覆盖失败（如离线）时仍用旧缓存，保证已缓存区域可看。
+        if (!cached) rethrow;
+        bytes = await cacheFile.readAsBytes();
       }
-      bytes = resp.bodyBytes;
-      await cacheFile.parent.create(recursive: true);
-      await cacheFile.writeAsBytes(bytes, flush: true);
     }
     final buffer = await ui.ImmutableBuffer.fromUint8List(Uint8List.fromList(bytes));
     final codec = await decode(buffer);

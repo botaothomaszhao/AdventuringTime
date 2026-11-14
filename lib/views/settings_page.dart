@@ -231,6 +231,19 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               ),
             ],
           ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('瓦片缓存自动更新'),
+            subtitle: const Text('开启后，浏览到来自其他瓦片源的缓存瓦片时重新下载并覆盖；关闭则缓存瓦片始终优先',
+                style: TextStyle(fontSize: 12)),
+            value: ref
+                .watch(tileCacheOverwriteProvider)
+                .maybeWhen(data: (v) => v, orElse: () => false),
+            onChanged: (v) async {
+              await setTileCacheOverwrite(v);
+              ref.invalidate(tileCacheOverwriteProvider);
+            },
+          ),
           const Divider(height: 32),
           const Text('地图叠加', style: TextStyle(fontWeight: FontWeight.bold)),
           SwitchListTile(

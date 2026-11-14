@@ -385,6 +385,17 @@ Future<void> setTileUrl(String url) async {
   await prefs.setString('tileUrl', url);
 }
 
+/// 设置：浏览到来自其他瓦片源的缓存瓦片时是否重新下载覆盖（默认关闭）。
+final tileCacheOverwriteProvider = FutureProvider<bool>((ref) async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getBool('tileCacheOverwrite') ?? false;
+});
+
+Future<void> setTileCacheOverwrite(bool on) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setBool('tileCacheOverwrite', on);
+}
+
 /// 设置：地址搜索服务（photon / nominatim）。
 final geocodeServiceProvider = FutureProvider<String>((ref) => geocodeService());
 

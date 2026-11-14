@@ -74,7 +74,7 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 | `views/trip_detail_page.dart` | 行程详情（说明内联编辑、按日期分组、组内手动调序 orderIds；统计含记录里程+推算里程） |
 | `views/person_shell.dart` | 主壳（Tab 地图/时间线/统计） |
 | `views/map_actions.dart` | 跨页地图动作通道（`mapPageActionProvider`：定位坐标、打开图层面板、在地图上选中地点/路径/行程） |
-| `views/stats_page.dart` / `settings_page.dart` / `widgets.dart` | 统计 / 设置（瓦片源即时生效、清除瓦片缓存、经纬度网格开关、数据目录）/ 公共组件（`pickImageBytes` 分平台） |
+| `views/stats_page.dart` / `settings_page.dart` / `widgets.dart` | 统计 / 设置（瓦片源即时生效、清除瓦片缓存、瓦片缓存自动更新开关、经纬度网格开关、数据目录）/ 公共组件（`pickImageBytes` 分平台） |
 | `driver_main.dart` | MCP 测试入口（见下） |
 
 ## 数据模型要点
@@ -113,4 +113,5 @@ $ws.Run($cmd, 0, $false)   # 0=隐藏窗口, false=不等待
 - **GitHub 推送**：本机直连 github.com 不通。git push 失败就停下来，请用户开梯子后重试——不要自己配置代理或连代理
 - **release APK 必须显式声明 INTERNET 权限**（main AndroidManifest.xml）：Flutter 只在 debug/profile 构建自动注入，release 缺了会瓦片/搜索全部失败（踩过坑）
 - 瓦片源在设置页保存后即时生效（invalidate tileUrlProvider）；设置页有"清除瓦片缓存"按钮（删应用数据/tiles 目录并清空 Flutter ImageCache、通知 TileLayer 重载）
+- 瓦片缓存按 z/x/y 平铺，同目录 `.src` 记录来源模板；「瓦片缓存自动更新」开关（`tileCacheOverwriteProvider`，默认关）开启时，地图 build 把值同步到 `DiskCachedTileProvider.overwriteMismatched`，异源瓦片浏览到时重下覆盖，下载失败回退旧缓存
 - 瓦片无数据区域（部分源高等级无数据）当前直接显示灰块；低 zoom 放大兜底已论证未实施（见 PLAN.md §8）

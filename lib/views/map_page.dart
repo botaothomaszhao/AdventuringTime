@@ -1170,6 +1170,9 @@ class _MapPageState extends ConsumerState<MapPage>
     final tileUrl = ref
         .watch(tileUrlProvider)
         .maybeWhen(data: (u) => u, orElse: () => '');
+    _tileProvider?.overwriteMismatched = ref
+        .watch(tileCacheOverwriteProvider)
+        .maybeWhen(data: (v) => v, orElse: () => false);
     // 瓦片层：深色模式下应用内置反色滤镜（容器级，性能好）
     final dark = Theme.of(context).brightness == Brightness.dark;
     final tileLayer = TileLayer(
