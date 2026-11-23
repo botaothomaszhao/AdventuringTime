@@ -26,7 +26,7 @@ class AdventuringTimeApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: _seed),
         useMaterial3: true,
       ),
-      // 深色模式仅安卓跟随系统，桌面保持浅色
+      // 深色模式仅安卓跟随系统，Windows 保持浅色
       themeMode: Platform.isAndroid ? ThemeMode.system : ThemeMode.light,
       darkTheme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
